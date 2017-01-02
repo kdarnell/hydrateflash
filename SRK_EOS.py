@@ -13,17 +13,23 @@ import numpy as np
     no correction for the liquid volume.
 """
 R = 83.144621
+# Possible aliases for describing the particular phase requested.
+liquid_list = ['liquid', 'liq', 'l']
+vapor_list = ['vapor', 'vap', 'v', 'gas', 'g']
 
 
 class SRK_fugs(object):
     def __init__(self, compobjs, T, P):
+        self.description = \
+            'Object for calculating fugacity of mixtures of gases' +\
+            'using the Soave-Relich-Koave (SRK) cubic equation of state.'
+        # Set up arrays and matrices for future calculation
         self.Nc = len(compobjs)
         self.S1_vec = np.zeros(self.Nc)
         self.kij_mat = np.zeros([self.Nc, self.Nc])
         self.a_vec = np.zeros(self.Nc)
         self.b_vec = np.zeros(self.Nc)
         self.a_mat = np.zeros([self.Nc, self.Nc])
-        self.fug_mat = np.zeros(self.Nc)
         self.alf_vec = np.zeros(self.Nc)
         self.Tr_vec = np.zeros(self.Nc)
         self.Pr_vec = np.zeros(self.Nc)
@@ -37,10 +43,11 @@ class SRK_fugs(object):
         # are not functions of compostion.
         self.make_constant_mats(compobjs, T, P)
 
+    # Define all constants wrt to composition.
     def make_constant_mats(self, compobjs, T, P):
         for ii, comp in enumerate(compobjs):
-            self.Tr_vec[ii] = comp.Tc/T
-            self.Pr_vec[ii] = comp.Pc/P
+            self.Tr_vec[ii] = T/comp.Tc
+            self.Pr_vec[ii] = P/comp.Pc
             self.S1_vec[ii] = 0.48508 + 1.55171*comp.SRK['omega'] -\
                 0.15613*comp.SRK['omega']**2
             self.alf_vec[ii] = (
@@ -48,82 +55,77 @@ class SRK_fugs(object):
                 comp.SRK['S2']*(1 - np.sqrt(self.Tr_vec[ii])) /
                 np.sqrt(self.Tr_vec[ii])
                                 )**2
-            self.a_vec[ii] = 0.42747*R**2*comp.Tc**2 / comp.Tc
-            self.b_vec[ii] = 0.08644*R*comp.Tc / comp.Pc
+            self.a_vec[ii] = 0.42747*R**2*comp.Tc**2 / comp.Pc
+            self.b_vec[ii] = 0.08664*R*comp.Tc / comp.Pc
 
         for ii, compouter in enumerate(compobjs):
             for jj, compinner in enumerate(compobjs):
                 self.kij_mat[ii, jj] = compouter.SRK['kij'][compinner.compname]
-                self.a_mat[ii, jj] = (
-                        1 - self.kij_mat[ii, jj] *
-                        np.sqrt(self.alf_vec[ii]*self.a_vec[ii] *
-                                self.alf_vec[jj]*self.a_vec[jj])
-                                      )
+                self.a_mat[ii, jj] = (1 - self.kij_mat[ii, jj]) *\
+                    np.sqrt(self.alf_vec[ii]*self.a_vec[ii] *
+                            self.alf_vec[jj]*self.a_vec[jj])                                    
 
+    # Weighted-sum of b
     def b_tot(self, x):
-        b = 0.0
-        for ii in range(self.Nc):
-            b += x[ii]*self.b_vec[ii]
+        b = np.sum(self.b_vec*x)
         return b
 
+    # Weighted-sum of a
     def a_tot(self, x):
         a = 0.0
-        for ii in range(self.Nc):
-            for jj in range(self.Nc):
-                a += x[ii]*x[jj]*self.a_mat[ii, jj]
+        for ii in range(len(x)):
+            for jj in range(len(x)):
+                a += x[ii]*x[jj]*self.a_mat[ii,jj]
         return a
 
-    def calc(self, compobjs, T, P, x):
-        if T != self.T or P != self.P or compobjs != self.compobjs:
-            print('Warning: Action not supported. \n' +
-                  'Key parameters (components, temperature, pressure)' +
-                  ' have changed. \nPlease create a new fugacity object.')
+    # Function for fugacity calculation in terms of pre-computed values,
+    # composition, and the Z-factor calculated in "calc".
+    def fugacity(self, x, Z):
+        fug = x*self.P*np.exp(
+                              (self.b_frac)*(Z - 1.0) - np.log(Z - self.B) -
+                              self.A/self.B*(2.0*self.a_frac - self.b_frac) *
+                              np.log(1.0 + self.B/Z)
+                              )
+        return fug
+
+    # Main calculation that will call "fugacity". Option to specify phase.
+    def calc(self, compobjs, T, P, x, phase='general'):
+        # Raise flag if components change.
+        if compobjs != self.compobjs:
+            print('Warning: Action not supported.' +
+                  '\nComponents have changed. ' +
+                  '\nPlease create a new fugacity object.')
             return None
         else:
-            A = self.a_tot(x)*P / (R**2 * T**2)
-            B = self.b_tot(x)*P / (R*T)
-            Z = np.roots([1, -1, A - B - B**2, -(A*B)])
-            return Z
+            # Re-calculate constants if pressure or temperature changes.
+            if self.T != T or self.P != P:
+                self.make_constant_mats(compobjs, T, P)
 
-#S1 = 0.48508 + 1.55171.*omega - 0.15613.*omega.^2;
-#% S1(key.water) = 1.2440;%From pg. 378 of Ballard Thesis
-#alf = (1 + S1.*(1 - sqrt(T./Tc)) + S2.*(1-sqrt(T./Tc))./sqrt(T./Tc)).^2;
-#a = 0.42747.*R^2.*Tc.^2./Pc;
-#a_mat = zeros(N,N);
-#a_tot = 0;
-#for i=1:N
-#    for j=1:N
-#        a_mat(i,j) = (1 - k(i,j))*sqrt(alf(i)*a(i)*alf(j)*a(j));
-#        a_tot = a_tot + x(i)*x(j)*a_mat(i,j);
-#    end
-#end
-#
-#b = 0.08664*R*Tc./Pc;
-#b_tot = sum(x.*b);
-#
-#A = a_tot*P/(R^2*T^2);
-#B = b_tot*P/(R*T);
-#if isnan(A) || isnan(B)
-#    Z=NaN;
-#else
-#coeff(1) = 1;
-#coeff(2) = -1;
-#coeff(3) = A - B - B^2;
-#coeff(4) = -(A*B);
-#Z = cubic_roots(coeff);
-#Z_v = max(Z);
-#Z_l = min(Z);
-#if isempty(Z)
-#    Z_v=NaN;
-#    Z_l=NaN;
-#end
-#end
-#fug_l = x.*P.*exp((b./b_tot).*(Z_l - 1) - log(Z_l-B) - A./B.*(2.*(a_mat*x)./a_tot - b./b_tot).*log(1+B./Z_l));
-#fug_v = x.*P.*exp((b./b_tot).*(Z_v - 1) - log(Z_v-B) - A./B.*(2.*(a_mat*x)./a_tot - b./b_tot).*log(1+B./Z_v));
-#if max(fug_l(2:end)<fug_v(2:end))
-#    fug=fug_l;
-#else
-#    fug=fug_v;
-#end
-#index = strcmp(comps,comprequest);
-#out = fug(index);
+            self.A = self.a_tot(x)*P / (R**2 * T**2)
+            self.B = self.b_tot(x)*P / (R*T)
+            coeffs = [1, -1, self.A - self.B - self.B**2, -(self.A*self.B)]
+            Z = np.roots(coeffs)
+            self.b_frac = self.b_vec/self.b_tot(x)
+            self.a_x_sum = np.matmul(self.a_mat, x)
+            self.a_frac = self.a_x_sum/self.a_tot(x)
+
+            if np.isreal(Z).all():
+                if phase.lower() in liquid_list:
+                    # De-bugging print statements!
+#                    print(self.b_frac)
+#                    print(self.a_x_sum)
+#                    print(x)
+#                    print(self.a_tot(x))
+#                    print(self.a_frac)
+                    fug = self.fugacity(x, Z.min())
+                elif phase.lower() in vapor_list or phase.lower() == 'general':
+                    fug = self.fugacity(x, Z.max())
+            elif np.isreal(Z).any():
+                # There should actually be only one real number if any
+                # imaginary roots exists, so the np.max() is redundant.
+                fug = self.fugacity(x, np.real(np.max(Z[np.isreal(Z)])))
+            else:
+                fug = np.nan
+                print('Something is wrong.' +
+                      '\nSolver returned imaginary numbers')
+        return fug
