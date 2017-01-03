@@ -8,21 +8,22 @@ Created on Fri Dec 30 16:40:41 2016
 import numpy as np
 
 """
-    This an equation of state (EOS) for vapor and liquid hydrocarbon phases
-    using the Soave-Redlich-Koave (SRK). At present (30 Dec. 16), there is
-    no correction for the liquid volume.
+    This is an equation of state (EOS) for vapor and liquid hydrocarbon phases
+    using the Soave-Redlich-Kwong (SRK) cubic equation.
+    At present (30 Dec. 16), there is no correction for the liquid volume.
 """
-R = 83.144621
+R = 83.144621  # universal gas constant
 # Possible aliases for describing the particular phase requested.
-liquid_list = ['liquid', 'liq', 'l']
-vapor_list = ['vapor', 'vap', 'v', 'gas', 'g']
+liquidalias = ('liquid', 'liq', 'l')
+vaporalias = ('vapor', 'vap', 'v', 'gas', 'g')
 
 
-class SRK_fugs(object):
+class SrkFugs(object):
     def __init__(self, compobjs, T, P):
-        self.description = \
-            'Object for calculating fugacity of mixtures of gases' +\
-            'using the Soave-Relich-Koave (SRK) cubic equation of state.'
+        self.description = (
+            'Object for calculating fugacity of mixtures of gases' +
+            'using the Soave-Relich-Kwong (SRK) cubic equation of state.'
+        )
         # Set up arrays and matrices for future calculation
         self.Nc = len(compobjs)
         self.S1_vec = np.zeros(self.Nc)
@@ -36,8 +37,6 @@ class SRK_fugs(object):
         # Store these, but continue feeding them into subsequent functions
         # to make sure they don't change!!
         self.compobjs = compobjs
-        self.T = T
-        self.P = P
 
         # Assuming pressure and temperature won't change, compute terms that
         # are not functions of compostion.
@@ -46,24 +45,28 @@ class SRK_fugs(object):
     # Define all constants wrt to composition.
     def make_constant_mats(self, compobjs, T, P):
         for ii, comp in enumerate(compobjs):
+            self.T = T
+            self.P = P
             self.Tr_vec[ii] = T/comp.Tc
             self.Pr_vec[ii] = P/comp.Pc
-            self.S1_vec[ii] = 0.48508 + 1.55171*comp.SRK['omega'] -\
-                0.15613*comp.SRK['omega']**2
+            self.S1_vec[ii] = (0.48508 + 1.55171*comp.SRK['omega']
+                               - 0.15613*comp.SRK['omega']**2)
             self.alf_vec[ii] = (
-                1.0 + self.S1_vec[ii]*(1.0 - np.sqrt(self.Tr_vec[ii])) +
-                comp.SRK['S2']*(1 - np.sqrt(self.Tr_vec[ii])) /
-                np.sqrt(self.Tr_vec[ii])
-                                )**2
+                (1.0 + self.S1_vec[ii]*(1.0 - np.sqrt(self.Tr_vec[ii]))
+                 + comp.SRK['S2']*(1.0 - np.sqrt(self.Tr_vec[ii]))
+                 / np.sqrt(self.Tr_vec[ii]))**2
+            )
             self.a_vec[ii] = 0.42747*R**2*comp.Tc**2 / comp.Pc
             self.b_vec[ii] = 0.08664*R*comp.Tc / comp.Pc
 
         for ii, compouter in enumerate(compobjs):
             for jj, compinner in enumerate(compobjs):
                 self.kij_mat[ii, jj] = compouter.SRK['kij'][compinner.compname]
-                self.a_mat[ii, jj] = (1 - self.kij_mat[ii, jj]) *\
-                    np.sqrt(self.alf_vec[ii]*self.a_vec[ii] *
-                            self.alf_vec[jj]*self.a_vec[jj])                                    
+                self.a_mat[ii, jj] = (
+                    (1 - self.kij_mat[ii, jj])
+                     * np.sqrt(self.alf_vec[ii]*self.a_vec[ii]
+                     * self.alf_vec[jj]*self.a_vec[jj])
+                )
 
     # Weighted-sum of b
     def b_tot(self, x):
@@ -75,17 +78,17 @@ class SRK_fugs(object):
         a = 0.0
         for ii in range(len(x)):
             for jj in range(len(x)):
-                a += x[ii]*x[jj]*self.a_mat[ii,jj]
+                a += x[ii]*x[jj]*self.a_mat[ii, jj]
         return a
 
     # Function for fugacity calculation in terms of pre-computed values,
     # composition, and the Z-factor calculated in "calc".
     def fugacity(self, x, Z):
-        fug = x*self.P*np.exp(
-                              (self.b_frac)*(Z - 1.0) - np.log(Z - self.B) -
-                              self.A/self.B*(2.0*self.a_frac - self.b_frac) *
-                              np.log(1.0 + self.B/Z)
-                              )
+        fug = (x*self.P
+               * np.exp((self.b_frac)*(Z - 1.0) - np.log(Z - self.B)
+                        - self.A/self.B*(2.0*self.a_frac - self.b_frac)
+                        * np.log(1.0 + self.B/Z))
+               )
         return fug
 
     # Main calculation that will call "fugacity". Option to specify phase.
@@ -110,18 +113,12 @@ class SRK_fugs(object):
             self.a_frac = self.a_x_sum/self.a_tot(x)
 
             if np.isreal(Z).all():
-                if phase.lower() in liquid_list:
-                    # De-bugging print statements!
-#                    print(self.b_frac)
-#                    print(self.a_x_sum)
-#                    print(x)
-#                    print(self.a_tot(x))
-#                    print(self.a_frac)
+                if phase.lower() in liquidalias:
                     fug = self.fugacity(x, Z.min())
-                elif phase.lower() in vapor_list or phase.lower() == 'general':
+                elif phase.lower() in vaporalias or phase.lower() == 'general':
                     fug = self.fugacity(x, Z.max())
             elif np.isreal(Z).any():
-                # There should actually be only one real number if any
+                # There should actually only be one real number if any
                 # imaginary roots exists, so the np.max() is redundant.
                 fug = self.fugacity(x, np.real(np.max(Z[np.isreal(Z)])))
             else:
