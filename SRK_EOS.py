@@ -18,7 +18,7 @@ liquidalias = ('liquid', 'liq', 'l')
 vaporalias = ('vapor', 'vap', 'v', 'gas', 'g')
 
 
-class SrkFugs(object):
+class SrkEos(object):
     def __init__(self, compobjs, T, P):
         self.description = (
             'Object for calculating fugacity of mixtures of gases' +
@@ -34,8 +34,6 @@ class SrkFugs(object):
         self.alf_vec = np.zeros(self.Nc)
         self.Tr_vec = np.zeros(self.Nc)
         self.Pr_vec = np.zeros(self.Nc)
-        # Store these, but continue feeding them into subsequent functions
-        # to make sure they don't change!!
         self.compobjs = compobjs
 
         # Assuming pressure and temperature won't change, compute terms that

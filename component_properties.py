@@ -20,6 +20,11 @@ c3h8alias = ('c3h8', 'c_3h_8', 'c3', 'propane')
 co2alias = ('co2', 'co_2', 'c02', 'c0_2', 'carbon dioxide')
 n2alias = ('n2', 'n_2', 'nitrogen')
 
+# Constants
+R = 8.3144621  # Gas constant in J/mol-K
+T_0 = 298.15  # Reference temperature in K
+P_0 = 1  # Reference pressure in bar
+
 
 class Component(object):
     def __init__(self, compstr):
@@ -53,13 +58,13 @@ class Component(object):
             MW - 'molecular weight', units = 'g/mol'
             N_carb - 'number of carbon atoms', units = 'none'
             Diam - 'molecular diamter, units = 'angstrom'
-            gi0 -
+            g_io -
                 'ideal gas gibb free energy at standard state', units = 'J/mol'
-            gi0_ast -
+            g_io_ast -
                 'partial molar gibb free energy at standard state',
                 units = 'J/mol'
-            hi0 - 'ideal gas enthalpy at standard state', units = 'J/mol'
-            hi0_ast -
+            h_io - 'ideal gas enthalpy at standard state', units = 'J/mol'
+            h_io_ast -
                 'partial molar enthalpy at standard state', units = 'J/mol'
             cp -
                 'ideal gas heat capacity parameters',
@@ -68,27 +73,27 @@ class Component(object):
             SRK['omega'] - 'acentricity factor', units = 'none'
             SRK['S2'] - 'SRK factor', units = 'none'
             SRK['kij'] = 'interaction factor', units = 'none'
-        Hydrate (Van der Waals-Plaateuw Modifed) EOS:
+        Hydrate (van der Waals and Platteeuw-Modifed) EOS:
                 Structure 1:
-                    HVdPM['S1']['kappa'] -
+                    HvdWPM['S1']['kappa'] -
                         'compressibility constant', units = 'bar^-1'
-                    HVdPM['S1']['large'] - 'large cage factor', units = ''
-                    HVdPM['S1']['small'] - 'small cage factor', units = ''
+                    HvdWPM['S1']['large'] - 'large cage factor', units = ''
+                    HvdWPM['S1']['small'] - 'small cage factor', units = ''
                 Structure 2:
-                    HVdPM['S2']['kappa'] -
+                    HvdWPM['S2']['kappa'] -
                         'compressibility constant', units = 'bar^-1'
-                    HVdPM['S2']['large'] - 'large cage factor', units = ''
-                    HVdPM['S2']['small'] - 'small cage factor', units = ''
+                    HvdWPM['S2']['large'] - 'large cage factor', units = ''
+                    HvdWPM['S2']['small'] - 'small cage factor', units = ''
                 Kihara potential:
-                    HVdPM['kih']['a'] - 'well-radius, units = 'angstrom'
-                    HVdPM['kih']['sigma'] - 'well-depth', units = 'angstrom'
-                    HVdPM['kih']['epsk'] - 'well paramter, units = 'Kelvin'
-        Aqueous Pitzer EOS:
-                AQP['omega_born'] - 'Born constant', units = 'J/mol'
-                AQP['cp'] -
+                    HvdWPM['kih']['a'] - 'well-radius, units = 'angstrom'
+                    HvdWPM['kih']['sigma'] - 'well-depth', units = 'angstrom'
+                    HvdWPM['kih']['epsk'] - 'well paramter, units = 'Kelvin'
+        Aqueous Hegelson-Bromley EOS:
+                AqHB['omega_born'] - 'Born constant', units = 'J/mol'
+                AqHB['cp'] -
                     'partial molar heat capacity factors in aqueous phase',
                     units = 'variable'
-                AQP'[v'] -
+                AqHB'[v'] -
                 'partial molar volume in aqueous phase', units = 'variable'
         Ideal EOS:
             ideal_HS1 -
@@ -104,21 +109,21 @@ class Component(object):
                 self.MW = 18.015
                 self.diam = np.nan
                 self.N_carb = 0
-                self.gi0 = -228700
-                self.hi0 = -242000
-                self.gi0_ast = np.nan
-                self.hi0_ast = np.nan
+                self.g_io = -228700
+                self.h_io = -242000
+                self.g_io_ast = np.nan
+                self.h_io_ast = np.nan
                 self.cp = {'a0': 3.8747,
                            'a1': 0.0231e-2,
                            'a2': 0.1269e-5,
                            'a3': -0.4321e-9}
-                self.AQP = {'cp': {'c1': np.nan,
-                                   'c2': np.nan},
-                            'v': {'v1': np.nan,
-                                  'v2': np.nan,
-                                  'v3': np.nan,
-                                  'v4': np.nan},
-                            'omega_born': np.nan}
+                self.AqHB = {'cp': {'c1': np.nan,
+                                    'c2': np.nan},
+                             'v': {'v1': np.nan,
+                                   'v2': np.nan,
+                                   'v3': np.nan,
+                                   'v4': np.nan},
+                             'omega_born': np.nan}
                 self.SRK = {'omega': 0.344,
                             'S2': -0.2018,
                             'kij': {'h2o': 0.0,
@@ -127,15 +132,15 @@ class Component(object):
                                     'n2': 0.5063,
                                     'c2h6': 0.5975,
                                     'c3h8': 0.5612}}
-                self.HVdPM = {'S1': {'kappa': np.nan,
-                                     'small': np.nan,
-                                     'large': np.nan},
-                              'S2': {'kappa': np.nan,
-                                     'small': np.nan,
-                                     'large': np.nan},
-                              'kih': {'a': np.nan,
-                                      'sig': np.nan,
-                                      'epsk': np.nan}}
+                self.HvdWPM = {'S1': {'kappa': np.nan,
+                                      'small': np.nan,
+                                      'large': np.nan},
+                               'S2': {'kappa': np.nan,
+                                      'small': np.nan,
+                                      'large': np.nan},
+                               'kih': {'a': np.nan,
+                                       'sig': np.nan,
+                                       'epsk': np.nan}}
                 self.ideal = {'HS1': {'a1': np.nan,
                                       'a2': np.nan,
                                       'a3': np.nan,
@@ -174,21 +179,21 @@ class Component(object):
                 self.MW = 16.043
                 self.diam = 4.247
                 self.N_carb = 1
-                self.gi0 = -50830
-                self.hi0 = -74900
-                self.gi0_ast = -34451
-                self.hi0_ast = -87906
+                self.g_io = -50830
+                self.h_io = -74900
+                self.g_io_ast = -34451
+                self.h_io_ast = -87906
                 self.cp = {'a0': 2.3902,
                            'a1': 0.6039e-2,
                            'a2': 0.1525e-5,
                            'a3': -1.3234e-9}
-                self.AQP = {'cp': {'c1': 176.12,
-                                   'c2': 6310762},
-                            'v': {'v1': 2.829,
-                                  'v2': 3651.8,
-                                  'v3': 9.7119,
-                                  'v4': -131365},
-                            'omega_born': -133009}
+                self.AqHB = {'cp': {'c1': 176.12,
+                                    'c2': 6310762},
+                             'v': {'v1': 2.829,
+                                   'v2': 3651.8,
+                                   'v3': 9.7119,
+                                   'v4': -131365},
+                             'omega_born': -133009}
                 self.SRK = {'omega': 0.0115,
                             'S2': -0.012223,
                             'kij': {'h2o': 0.4965,
@@ -197,15 +202,15 @@ class Component(object):
                                     'n2': 0.0291,
                                     'c2h6': 0.0,
                                     'c3h8': 0.0}}
-                self.HVdPM = {'S1': {'kappa': 1e-5,
-                                     'small': 0.017668,
-                                     'large': 0.010316},
-                              'S2': {'kappa': 5e-5,
-                                     'small': 0.0020998,
-                                     'large': 0.011383},
-                              'kih': {'a': 0.3834,
-                                      'sig': 3.14393,
-                                      'epsk': 155.593}}
+                self.HvdWPM = {'S1': {'kappa': 1e-5,
+                                      'small': 0.017668,
+                                      'large': 0.010316},
+                               'S2': {'kappa': 5e-5,
+                                      'small': 0.0020998,
+                                      'large': 0.011383},
+                               'kih': {'a': 0.3834,
+                                       'sig': 3.14393,
+                                       'epsk': 155.593}}
                 self.ideal = {'HS1': {'a1': 27.474169,
                                       'a2': -0.8587468,
                                       'a3': 0.0,
@@ -245,21 +250,21 @@ class Component(object):
                 self.MW = 30.07
                 self.diam = 5.076
                 self.N_carb = 2
-                self.gi0 = -32900
-                self.hi0 = -84720
-                self.gi0_ast = -17000
-                self.hi0_ast = -103136
+                self.g_io = -32900
+                self.h_io = -84720
+                self.g_io_ast = -17000
+                self.h_io_ast = -103136
                 self.cp = {'a0': 0.8293,
                            'a1': 2.0752e-2,
                            'a2': -0.7699e-5,
                            'a3': 0.8756e-9}
-                self.AQP = {'cp': {'c1': 226.67,
-                                   'c2': 9011737},
-                            'v': {'v1': 2.829,
-                                  'v2': 5565.2,
-                                  'v3': 2.1778,
-                                  'v4': -139277},
-                            'omega_born': -169870}
+                self.AqHB = {'cp': {'c1': 226.67,
+                                    'c2': 9011737},
+                             'v': {'v1': 2.829,
+                                   'v2': 5565.2,
+                                   'v3': 2.1778,
+                                   'v4': -139277},
+                             'omega_born': -169870}
                 self.SRK = {'omega': 0.0995,
                             'S2': -0.0124,
                             'kij': {'h2o': 0.5975,
@@ -268,15 +273,15 @@ class Component(object):
                                     'n2': 0.0082,
                                     'c2h6': 0.0,
                                     'c3h8': 0.0}}
-                self.HVdPM = {'S1': {'kappa': 1e-8,
-                                     'small': 0.0,
-                                     'large': 0.015773},
-                              'S2': {'kappa': 1e-7,
-                                     'small': 0.0025097,
-                                     'large': 0.014973},
-                              'kih': {'a':  0.5651,
-                                      'sig': 3.24693,
-                                      'epsk': 188.181}}
+                self.HvdWPM = {'S1': {'kappa': 1e-8,
+                                      'small': 0.0,
+                                      'large': 0.015773},
+                               'S2': {'kappa': 1e-7,
+                                      'small': 0.0025097,
+                                      'large': 0.014973},
+                               'kih': {'a':  0.5651,
+                                       'sig': 3.24693,
+                                       'epsk': 188.181}}
                 self.ideal = {'HS1': {'a1': 14.81962,
                                       'a2': 6.813994,
                                       'a3': 0.0,
@@ -316,21 +321,21 @@ class Component(object):
                 self.MW = 44.097
                 self.diam = 5.745
                 self.N_carb = 3
-                self.gi0 = -23500
-                self.hi0 = -103900
-                self.gi0_ast = -7550
-                self.hi0_ast = -131000
+                self.g_io = -23500
+                self.h_io = -103900
+                self.g_io_ast = -7550
+                self.h_io_ast = -131000
                 self.cp = {'a0': -0.4861,
                            'a1': 3.6629e-2,
                            'a2': -1.8895e-5,
                            'a3': 3.8143e-9}
-                self.AQP = {'cp': {'c1': 277.52,
-                                   'c2': 11749531},
-                            'v': {'v1': 4.503,
-                                  'v2': 7738.2,
-                                  'v3': -6.3316,
-                                  'v4': -148260},
-                            'omega_born': -211418}
+                self.AqHB = {'cp': {'c1': 277.52,
+                                    'c2': 11749531},
+                             'v': {'v1': 4.503,
+                                   'v2': 7738.2,
+                                   'v3': -6.3316,
+                                   'v4': -148260},
+                             'omega_born': -211418}
                 self.SRK = {'omega': 0.1523,
                             'S2': -0.0038,
                             'kij': {'h2o': 0.5612,
@@ -339,15 +344,15 @@ class Component(object):
                                     'n2': 0.0865,
                                     'c2h6': 0.0,
                                     'c3h8': 0.0}}
-                self.HVdPM = {'S1': {'kappa': 1e-7,
-                                     'small': 0.0,
-                                     'large': 0.029839},
-                              'S2': {'kappa': 1e-6,
-                                     'small': 0.0,
-                                     'large': 0.025576},
-                              'kih': {'a': 0.6502,
-                                      'sig': 3.41670,
-                                      'epsk': 192.855}}
+                self.HvdWPM = {'S1': {'kappa': 1e-7,
+                                      'small': 0.0,
+                                      'large': 0.029839},
+                               'S2': {'kappa': 1e-6,
+                                      'small': 0.0,
+                                      'large': 0.025576},
+                               'kih': {'a': 0.6502,
+                                       'sig': 3.41670,
+                                       'epsk': 192.855}}
                 self.ideal = {'HS1': {'a1': 1e6,
                                       'a2': 1e6,
                                       'a3': 1e6,
@@ -387,21 +392,21 @@ class Component(object):
                 self.MW = 44.01
                 self.diam = 4.603
                 self.N_carb = 1
-                self.gi0 = -394600
-                self.hi0 = -393800
-                self.gi0_ast = -385974
-                self.hi0_ast = -413798
+                self.g_io = -394600
+                self.h_io = -393800
+                self.g_io_ast = -385974
+                self.h_io_ast = -413798
                 self.cp = {'a0': 2.6751,
                            'a1': 0.7188e-2,
                            'a2': -0.4208e-5,
                            'a3': 0.8977e-9}
-                self.AQP = {'cp': {'c1': 167.50,
-                                   'c2': 5304066},
-                            'v': {'v1': 2.614,
-                                  'v2': 3125.9,
-                                  'v3': 11.7721,
-                                  'v4': -129198},
-                            'omega_born': -8368}
+                self.AqHB = {'cp': {'c1': 167.50,
+                                    'c2': 5304066},
+                             'v': {'v1': 2.614,
+                                   'v2': 3125.9,
+                                   'v3': 11.7721,
+                                   'v4': -129198},
+                             'omega_born': -8368}
                 self.SRK = {'omega': 0.2236,
                             'S2': -0.004474,
                             'kij': {'h2o': -0.07,
@@ -410,15 +415,15 @@ class Component(object):
                                     'n2': -0.0462,
                                     'c2h6': 0.132,
                                     'c3h8': 0.13}}
-                self.HVdPM = {'S1': {'kappa': 1e-6,
-                                     'small': 0.0,
-                                     'large': 0.0058282},
-                              'S2': {'kappa': 1e-5,
-                                     'small': 0.002758,
-                                     'large': 0.012242},
-                              'kih': {'a': 0.6805,
-                                      'sig': 2.97638,
-                                      'epsk': 175.405}}
+                self.HvdWPM = {'S1': {'kappa': 1e-6,
+                                      'small': 0.0,
+                                      'large': 0.0058282},
+                               'S2': {'kappa': 1e-5,
+                                      'small': 0.002758,
+                                      'large': 0.012242},
+                               'kih': {'a': 0.6805,
+                                       'sig': 2.97638,
+                                       'epsk': 175.405}}
                 self.ideal = {'HS1': {'a1': 15.8336435,
                                       'a2': 3.119,
                                       'a3': 0.0,
@@ -458,21 +463,21 @@ class Component(object):
                 self.MW = 28.013
                 self.diam = 4.177
                 self.N_carb = 0.0
-                self.gi0 = 0.0
-                self.hi0 = 0.0
-                self.gi0_ast = 18188
-                self.hi0_ast = -10439
+                self.g_io = 0.0
+                self.h_io = 0.0
+                self.g_io_ast = 18188
+                self.h_io_ast = -10439
                 self.cp = {'a0': 3.4736,
                            'a1': -0.0189e-2,
                            'a2': 0.0971e-5,
                            'a3': -0.3453e-9}
-                self.AQP = {'cp': {'c1': 149.75,
-                                   'c2': 5046230},
-                            'v': {'v1': 2.596,
-                                  'v2': 3083.0,
-                                  'v3': 11.9407,
-                                  'v4': -129018},
-                            'omega_born': -145101}
+                self.AqHB = {'cp': {'c1': 149.75,
+                                    'c2': 5046230},
+                             'v': {'v1': 2.596,
+                                   'v2': 3083.0,
+                                   'v3': 11.9407,
+                                   'v4': -129018},
+                             'omega_born': -145101}
                 self.SRK = {'omega': 0.0377,
                             'S2': -0.011016,
                             'kij': {'h2o': 0.5063,
@@ -481,15 +486,15 @@ class Component(object):
                                     'n2': 0.0,
                                     'c2h6': 0.0082,
                                     'c3h8': 0.0862}}
-                self.HVdPM = {'S1': {'kappa': 1.1e-5,
-                                     'small': 0.017377,
-                                     'large': 0.0},
-                              'S2': {'kappa': 1.1e-5,
-                                     'small': 0.0020652,
-                                     'large': 0.011295},
-                              'kih': {'a': 0.3526,
-                                      'sig': 3.13512,
-                                      'epsk': 127.426}}
+                self.HvdWPM = {'S1': {'kappa': 1.1e-5,
+                                      'small': 0.017377,
+                                      'large': 0.0},
+                               'S2': {'kappa': 1.1e-5,
+                                      'small': 0.0020652,
+                                      'large': 0.011295},
+                               'kih': {'a': 0.3526,
+                                       'sig': 3.13512,
+                                       'epsk': 127.426}}
                 self.ideal = {'HS1': {'a1': 173.2164,
                                       'a2': -0.5996,
                                       'a3': 0.0,
@@ -522,3 +527,18 @@ class Component(object):
                                       'a17': 3.05e-5,
                                       'a18': 1.1e-7,
                                       'a19': 0.0}}
+                       
+    def gibbs_ideal(self, T, P):
+        g_io_RT = (
+            self.g_io/(R*T_0) 
+            - (12*T*self.h_io - 12*T_0*self.h_io + 12*T_0**2*self.cp['a0']
+               + 6*T_0**3*self.cp['a1'] + 4*T_0**4*self.cp['a2']
+               + 3*T_0**5*self.cp['a3'] - 12*T*T_0*self.cp['a0']
+               - 12*T*T_0**2*self.cp['a1'] + 6*T**2*T_0*self.cp['a1']
+               - 6*T*T_0**3*self.cp['a2'] + 2*T**3*T_0*self.cp['a2']
+               - 4*T*T_0**4*self.cp['a3'] + T**4*T_0*self.cp['a3']
+               + 12*T*T_0*self.cp['a0']*np.log(T)
+               - 12*T*T_0*self.cp['a0']*np.log(T_0)
+               )/(12*R*T*T_0)
+        )
+        return g_io_RT
