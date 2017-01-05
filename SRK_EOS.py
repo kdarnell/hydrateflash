@@ -10,9 +10,9 @@ import numpy as np
 """
     This is an equation of state (EOS) for vapor and liquid hydrocarbon phases
     using the Soave-Redlich-Kwong (SRK) cubic equation.
-    At present (30 Dec. 16), there is no correction for the liquid volume.
+    At present (early 2017), there is no correction for the liquid volume.
 """
-R = 83.144621  # universal gas constant
+R = 83.144621  # universal gas constant (compatible with bar)
 # Possible aliases for describing the particular phase requested.
 liquidalias = ('liquid', 'liq', 'l')
 vaporalias = ('vapor', 'vap', 'v', 'gas', 'g')
