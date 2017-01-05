@@ -28,6 +28,9 @@ P_0 = 1  # Reference pressure in bar
 
 class Component(object):
     def __init__(self, compstr):
+        self.description = ('Intrinsic and empirical properties of ' +
+                            self.compname)
+
         self.supportflag = False
         if compstr.lower() in h2oalias:
             self.compname = 'h2o'
@@ -46,8 +49,7 @@ class Component(object):
             self.compname = None
             print('Warning: ' + compstr +
                   ' component is not currently supported!!')
-        self.description = ('Intrinsic and empirical properties of ' +
-                            self.compname)
+
         """
         Set all relevant properties for each component.
         These properties are as follows:
@@ -113,10 +115,10 @@ class Component(object):
                 self.h_io = -242000
                 self.g_io_ast = np.nan
                 self.h_io_ast = np.nan
-                self.cp = {'a0': 3.8747,
-                           'a1': 0.0231e-2,
-                           'a2': 0.1269e-5,
-                           'a3': -0.4321e-9}
+                self.cp = {'a0': 3.8747*R,
+                           'a1': 0.0231e-2*R,
+                           'a2': 0.1269e-5*R,
+                           'a3': -0.4321e-9*R}
                 self.AqHB = {'cp': {'c1': np.nan,
                                     'c2': np.nan},
                              'v': {'v1': np.nan,
@@ -183,10 +185,10 @@ class Component(object):
                 self.h_io = -74900
                 self.g_io_ast = -34451
                 self.h_io_ast = -87906
-                self.cp = {'a0': 2.3902,
-                           'a1': 0.6039e-2,
-                           'a2': 0.1525e-5,
-                           'a3': -1.3234e-9}
+                self.cp = {'a0': 2.3902*R,
+                           'a1': 0.6039e-2*R,
+                           'a2': 0.1525e-5*R,
+                           'a3': -1.3234e-9*R}
                 self.AqHB = {'cp': {'c1': 176.12,
                                     'c2': 6310762},
                              'v': {'v1': 2.829,
@@ -254,10 +256,10 @@ class Component(object):
                 self.h_io = -84720
                 self.g_io_ast = -17000
                 self.h_io_ast = -103136
-                self.cp = {'a0': 0.8293,
-                           'a1': 2.0752e-2,
-                           'a2': -0.7699e-5,
-                           'a3': 0.8756e-9}
+                self.cp = {'a0': 0.8293*R,
+                           'a1': 2.0752e-2*R,
+                           'a2': -0.7699e-5*R,
+                           'a3': 0.8756e-9*R}
                 self.AqHB = {'cp': {'c1': 226.67,
                                     'c2': 9011737},
                              'v': {'v1': 2.829,
@@ -325,10 +327,10 @@ class Component(object):
                 self.h_io = -103900
                 self.g_io_ast = -7550
                 self.h_io_ast = -131000
-                self.cp = {'a0': -0.4861,
-                           'a1': 3.6629e-2,
-                           'a2': -1.8895e-5,
-                           'a3': 3.8143e-9}
+                self.cp = {'a0': -0.4861*R,
+                           'a1': 3.6629e-2*R,
+                           'a2': -1.8895e-5*R,
+                           'a3': 3.8143e-9*R}
                 self.AqHB = {'cp': {'c1': 277.52,
                                     'c2': 11749531},
                              'v': {'v1': 4.503,
@@ -396,10 +398,10 @@ class Component(object):
                 self.h_io = -393800
                 self.g_io_ast = -385974
                 self.h_io_ast = -413798
-                self.cp = {'a0': 2.6751,
-                           'a1': 0.7188e-2,
-                           'a2': -0.4208e-5,
-                           'a3': 0.8977e-9}
+                self.cp = {'a0': 2.6751*R,
+                           'a1': 0.7188e-2*R,
+                           'a2': -0.4208e-5*R,
+                           'a3': 0.8977e-9*R}
                 self.AqHB = {'cp': {'c1': 167.50,
                                     'c2': 5304066},
                              'v': {'v1': 2.614,
@@ -467,10 +469,10 @@ class Component(object):
                 self.h_io = 0.0
                 self.g_io_ast = 18188
                 self.h_io_ast = -10439
-                self.cp = {'a0': 3.4736,
-                           'a1': -0.0189e-2,
-                           'a2': 0.0971e-5,
-                           'a3': -0.3453e-9}
+                self.cp = {'a0': 3.4736*R,
+                           'a1': -0.0189e-2*R,
+                           'a2': 0.0971e-5*R,
+                           'a3': -0.3453e-9*R}
                 self.AqHB = {'cp': {'c1': 149.75,
                                     'c2': 5046230},
                              'v': {'v1': 2.596,
