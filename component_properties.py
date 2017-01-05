@@ -72,19 +72,19 @@ class Component(object):
                 units = 'Kelvin'[to power of constant]
         SRK EOS:
             SRK['omega'] - 'acentricity factor', units = 'none'
-            SRK['S2'] - 'SRK factor', units = 'none'
+            SRK['s2'] - 'SRK factor', units = 'none'
             SRK['kij'] = 'interaction factor', units = 'none'
         Hydrate (van der Waals and Platteeuw-Modifed) EOS:
                 Structure 1:
-                    HvdWPM['S1']['kappa'] -
+                    HvdWPM['s1']['kappa'] -
                         'compressibility constant', units = 'bar^-1'
-                    HvdWPM['S1']['large'] - 'large cage factor', units = ''
-                    HvdWPM['S1']['small'] - 'small cage factor', units = ''
+                    HvdWPM['s1']['large'] - 'large cage factor', units = ''
+                    HvdWPM['s1']['small'] - 'small cage factor', units = ''
                 Structure 2:
-                    HvdWPM['S2']['kappa'] -
+                    HvdWPM['s2']['kappa'] -
                         'compressibility constant', units = 'bar^-1'
-                    HvdWPM['S2']['large'] - 'large cage factor', units = ''
-                    HvdWPM['S2']['small'] - 'small cage factor', units = ''
+                    HvdWPM['s2']['large'] - 'large cage factor', units = ''
+                    HvdWPM['s2']['small'] - 'small cage factor', units = ''
                 Kihara potential:
                     HvdWPM['kih']['a'] - 'well-radius, units = 'angstrom'
                     HvdWPM['kih']['sigma'] - 'well-depth', units = 'angstrom'
@@ -97,9 +97,9 @@ class Component(object):
                 AqHB'[v'] -
                 'partial molar volume in aqueous phase', units = 'variable'
         Ideal EOS:
-            ideal_HS1 -
+            ideal_Hs1 -
                 'hydrate structure 1 factors for ideal case, units = ''
-            ideal_HS2 -
+            ideal_Hs2 -
                 'hydrate structure 2 factors for ideal case, units = ''
         """
         if self.compname == 'h2o':
@@ -132,16 +132,16 @@ class Component(object):
                                 'n2': 0.5063,
                                 'c2h6': 0.5975,
                                 'c3h8': 0.5612}}
-            self.HvdWPM = {'S1': {'kappa': np.nan,
+            self.HvdWPM = {'s1': {'kappa': np.nan,
                                   'small': np.nan,
                                   'large': np.nan},
-                           'S2': {'kappa': np.nan,
+                           's2': {'kappa': np.nan,
                                   'small': np.nan,
                                   'large': np.nan},
                            'kih': {'a': np.nan,
                                    'sig': np.nan,
                                    'epsk': np.nan}}
-            self.ideal = {'HS1': {'a1': np.nan,
+            self.ideal = {'Hs1': {'a1': np.nan,
                                   'a2': np.nan,
                                   'a3': np.nan,
                                   'a4': np.nan,
@@ -154,7 +154,7 @@ class Component(object):
                                   'a11': np.nan,
                                   'a12': np.nan,
                                   'a13': np.nan},
-                          'HS2': {'a1': np.nan,
+                          'Hs2': {'a1': np.nan,
                                   'a2': np.nan,
                                   'a3': np.nan,
                                   'a4': np.nan,
@@ -202,16 +202,16 @@ class Component(object):
                                 'n2': 0.0291,
                                 'c2h6': 0.0,
                                 'c3h8': 0.0}}
-            self.HvdWPM = {'S1': {'kappa': 1e-5,
+            self.HvdWPM = {'s1': {'kappa': 1e-5,
                                   'small': 0.017668,
                                   'large': 0.010316},
-                           'S2': {'kappa': 5e-5,
+                           's2': {'kappa': 5e-5,
                                   'small': 0.0020998,
                                   'large': 0.011383},
                            'kih': {'a': 0.3834,
                                    'sig': 3.14393,
                                    'epsk': 155.593}}
-            self.ideal = {'HS1': {'a1': 27.474169,
+            self.ideal = {'Hs1': {'a1': 27.474169,
                                   'a2': -0.8587468,
                                   'a3': 0.0,
                                   'a4': 6604.6088,
@@ -224,7 +224,7 @@ class Component(object):
                                   'a11': 0.0,
                                   'a12': 0.0,
                                   'a13': 0.0},
-                          'HS2': {'a1': -0.45872,
+                          'Hs2': {'a1': -0.45872,
                                   'a2': 0.0,
                                   'a3': 0.0,
                                   'a4': 31.6621,
@@ -273,16 +273,16 @@ class Component(object):
                                 'n2': 0.0082,
                                 'c2h6': 0.0,
                                 'c3h8': 0.0}}
-            self.HvdWPM = {'S1': {'kappa': 1e-8,
+            self.HvdWPM = {'s1': {'kappa': 1e-8,
                                   'small': 0.0,
                                   'large': 0.015773},
-                           'S2': {'kappa': 1e-7,
+                           's2': {'kappa': 1e-7,
                                   'small': 0.0025097,
                                   'large': 0.014973},
                            'kih': {'a':  0.5651,
                                    'sig': 3.24693,
                                    'epsk': 188.181}}
-            self.ideal = {'HS1': {'a1': 14.81962,
+            self.ideal = {'Hs1': {'a1': 14.81962,
                                   'a2': 6.813994,
                                   'a3': 0.0,
                                   'a4': 3463.9937,
@@ -295,7 +295,7 @@ class Component(object):
                                   'a11': 0.0,
                                   'a12': 0.0,
                                   'a13': 0.0},
-                          'HS2': {'a1': 3.21799,
+                          'Hs2': {'a1': 3.21799,
                                   'a2': 0.0,
                                   'a3': 0.0,
                                   'a4': -290.283,
@@ -344,16 +344,16 @@ class Component(object):
                                 'n2': 0.0865,
                                 'c2h6': 0.0,
                                 'c3h8': 0.0}}
-            self.HvdWPM = {'S1': {'kappa': 1e-7,
+            self.HvdWPM = {'s1': {'kappa': 1e-7,
                                   'small': 0.0,
                                   'large': 0.029839},
-                           'S2': {'kappa': 1e-6,
+                           's2': {'kappa': 1e-6,
                                   'small': 0.0,
                                   'large': 0.025576},
                            'kih': {'a': 0.6502,
                                    'sig': 3.41670,
                                    'epsk': 192.855}}
-            self.ideal = {'HS1': {'a1': 1e6,
+            self.ideal = {'Hs1': {'a1': 1e6,
                                   'a2': 1e6,
                                   'a3': 1e6,
                                   'a4': 1e6,
@@ -366,7 +366,7 @@ class Component(object):
                                   'a11': 1e6,
                                   'a12': 1e6,
                                   'a13': 1e6},
-                          'HS2': {'a1': 7.51966,
+                          'Hs2': {'a1': 7.51966,
                                   'a2': 0.0,
                                   'a3': 0.0,
                                   'a4': 47.056,
@@ -415,16 +415,16 @@ class Component(object):
                                 'n2': -0.0462,
                                 'c2h6': 0.132,
                                 'c3h8': 0.13}}
-            self.HvdWPM = {'S1': {'kappa': 1e-6,
+            self.HvdWPM = {'s1': {'kappa': 1e-6,
                                   'small': 0.0,
                                   'large': 0.0058282},
-                           'S2': {'kappa': 1e-5,
+                           's2': {'kappa': 1e-5,
                                   'small': 0.002758,
                                   'large': 0.012242},
                            'kih': {'a': 0.6805,
                                    'sig': 2.97638,
                                    'epsk': 175.405}}
-            self.ideal = {'HS1': {'a1': 15.8336435,
+            self.ideal = {'Hs1': {'a1': 15.8336435,
                                   'a2': 3.119,
                                   'a3': 0.0,
                                   'a4': 3760.6324,
@@ -437,7 +437,7 @@ class Component(object):
                                   'a11': 0.0,
                                   'a12': 0.0,
                                   'a13': 0.0},
-                          'HS2': {'a1': 9.0242,
+                          'Hs2': {'a1': 9.0242,
                                   'a2': 0.0,
                                   'a3': 0.0,
                                   'a4': -207.033,
@@ -486,16 +486,16 @@ class Component(object):
                                 'n2': 0.0,
                                 'c2h6': 0.0082,
                                 'c3h8': 0.0862}}
-            self.HvdWPM = {'S1': {'kappa': 1.1e-5,
+            self.HvdWPM = {'s1': {'kappa': 1.1e-5,
                                   'small': 0.017377,
                                   'large': 0.0},
-                           'S2': {'kappa': 1.1e-5,
+                           's2': {'kappa': 1.1e-5,
                                   'small': 0.0020652,
                                   'large': 0.011295},
                            'kih': {'a': 0.3526,
                                    'sig': 3.13512,
                                    'epsk': 127.426}}
-            self.ideal = {'HS1': {'a1': 173.2164,
+            self.ideal = {'Hs1': {'a1': 173.2164,
                                   'a2': -0.5996,
                                   'a3': 0.0,
                                   'a4': 24751.6667,
@@ -508,7 +508,7 @@ class Component(object):
                                   'a11': -2.07e-5,
                                   'a12': 0.0,
                                   'a13': 0.0},
-                          'HS2': {'a1': 1.78857,
+                          'Hs2': {'a1': 1.78857,
                                   'a2': 0.0,
                                   'a3': -0.019667,
                                   'a4': -6.187,

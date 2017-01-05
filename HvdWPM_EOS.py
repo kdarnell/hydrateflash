@@ -12,11 +12,6 @@ import numpy as np
     in the presence of multiple gases using the Ballard-modified 
     van der Waals Platteeuw EOS.
 """
-# Possible aliases of the 
-s1alias = ('s1', '1', 'sI', 'I', 'one')
-s2alias = ('s2', '2', 'sII', 'II', 'two')
-sHalias = ('sH', 'H')
-
 # Constants
 R = 8.3144621  # universal gas constant
 T_0 = 298.15
@@ -26,137 +21,78 @@ cp = {'a0': 0.735409713*R,
       'a2': -1.72746e-5*R,
       'a3': 63.5104e-9*R}
 
-class VdwpmEOSEos(object):
-    def __init__(self, compobjs, T, P, structure='S1'):
+class HydrateEos(object):
+    def __init__(self, compobjs, T, P, structure='s1'):
         self.description = (
             'Object for calculating fugacity of water in hydrate' +
-            'with a mixture of gases using the van der Waals' +
-            'Platteeuw-Modifed equation of state.'
+            ' with a mixture of gases.'
         )
         # Set up arrays and matrices for future calculation
         self.Nc = len(compobjs)
         self.compobjs = compobjs
-        Hs = HydStructure(structure)
+        self.gwbeta_RT = np.zeros(1)
+        self.activity = np.zeros(1)
+        self.delta_mu_RT = np.zeros(1)
+        self.gw0_RT = np.zeros(1)
+        self.compnames = [c.compname for c in compobjs]
+        self.h2oind = [ii for ii, name in enumerate(self.compnames)
+                       if name == 'h2o'][0]
+        self.Hs = HydrateStructure(structure)
+        self.make_constant_mats(compobjs, T, P)
+        
+    def make_constant_mats(self, compobjs, T, P):
+        # Create all values that are invariant wrt T and P
+        self.T = T
+        self.P = P
+        self.gw0_RT = compobjs[self.h2oind].gibbs_ideal(T, P)
+        
+        # Add additional stuff for specific EOS's here
 
-#        self.S1_vec = np.zeros(self.Nc)
-#        self.kij_mat = np.zeros([self.Nc, self.Nc])
-#        self.a_vec = np.zeros(self.Nc)
-#        self.b_vec = np.zeros(self.Nc)
-#        self.a_mat = np.zeros([self.Nc, self.Nc])
-#        self.alf_vec = np.zeros(self.Nc)
-#        self.Tr_vec = np.zeros(self.Nc)
-#        self.Pr_vec = np.zeros(self.Nc)
-#
-#        # Assuming pressure and temperature won't change, compute terms that
-#        # are not functions of compostion.
-#        self.make_constant_mats(compobjs, T, P)
-#
-#    # Define all constants wrt to composition.
-#    def make_constant_mats(self, compobjs, T, P):
-#        for ii, comp in enumerate(compobjs):
-#            self.T = T
-#            self.P = P
-#            self.Tr_vec[ii] = T/comp.Tc
-#            self.Pr_vec[ii] = P/comp.Pc
-#            self.S1_vec[ii] = (0.48508 + 1.55171*comp.SRK['omega']
-#                               - 0.15613*comp.SRK['omega']**2)
-#            self.alf_vec[ii] = (
-#                (1.0 + self.S1_vec[ii]*(1.0 - np.sqrt(self.Tr_vec[ii]))
-#                 + comp.SRK['S2']*(1.0 - np.sqrt(self.Tr_vec[ii]))
-#                 / np.sqrt(self.Tr_vec[ii]))**2
-#            )
-#            self.a_vec[ii] = 0.42747*R**2*comp.Tc**2 / comp.Pc
-#            self.b_vec[ii] = 0.08664*R*comp.Tc / comp.Pc
-#
-#        for ii, compouter in enumerate(compobjs):
-#            for jj, compinner in enumerate(compobjs):
-#                self.kij_mat[ii, jj] = compouter.SRK['kij'][compinner.compname]
-#                self.a_mat[ii, jj] = (
-#                    (1 - self.kij_mat[ii, jj])
-#                     * np.sqrt(self.alf_vec[ii]*self.a_vec[ii]
-#                     * self.alf_vec[jj]*self.a_vec[jj])
-#                )
-#
-#    # Weighted-sum of b
-#    def b_tot(self, x):
-#        b = np.sum(self.b_vec*x)
-#        return b
-#
-#    # Weighted-sum of a
-#    def a_tot(self, x):
-#        a = 0.0
-#        for ii in range(len(x)):
-#            for jj in range(len(x)):
-#                a += x[ii]*x[jj]*self.a_mat[ii, jj]
-#        return a
-#
-#    # Function for fugacity calculation in terms of pre-computed values,
-#    # composition, and the Z-factor calculated in "calc".
-#    def fugacity(self, x, Z):
-#        fug = (x*self.P
-#               * np.exp((self.b_frac)*(Z - 1.0) - np.log(Z - self.B)
-#                        - self.A/self.B*(2.0*self.a_frac - self.b_frac)
-#                        * np.log(1.0 + self.B/Z))
-#               )
-#        return fug
-#
-#    # Main calculation that will call "fugacity". Option to specify phase.
-#    def calc(self, compobjs, T, P, x, phase='general'):
-#        # Raise flag if components change.
-#        if compobjs != self.compobjs:
-#            print('Warning: Action not supported.' +
-#                  '\nComponents have changed. ' +
-#                  '\nPlease create a new fugacity object.')
-#            return None
-#        else:
-#            # Re-calculate constants if pressure or temperature changes.
-#            if self.T != T or self.P != P:
-#                self.make_constant_mats(compobjs, T, P)
-#
-#            self.A = self.a_tot(x)*P / (R**2 * T**2)
-#            self.B = self.b_tot(x)*P / (R*T)
-#            coeffs = [1, -1, self.A - self.B - self.B**2, -(self.A*self.B)]
-#            Z = np.roots(coeffs)
-#            self.b_frac = self.b_vec/self.b_tot(x)
-#            self.a_x_sum = np.matmul(self.a_mat, x)
-#            self.a_frac = self.a_x_sum/self.a_tot(x)
-#
-#            if np.isreal(Z).all():
-#                if phase.lower() in liquidalias:
-#                    fug = self.fugacity(x, Z.min())
-#                elif phase.lower() in vaporalias or phase.lower() == 'general':
-#                    fug = self.fugacity(x, Z.max())
-#            elif np.isreal(Z).any():
-#                # There should actually only be one real number if any
-#                # imaginary roots exists, so the np.max() is redundant.
-#                fug = self.fugacity(x, np.real(np.max(Z[np.isreal(Z)])))
-#            else:
-#                fug = np.nan
-#                print('Something is wrong.' +
-#                      '\nSolver returned imaginary numbers')
-#        return fug
+        return self
+
+    def Langmuir_constants(self, compobjs, T, P, x):
+        return self
         
         
-class HydStructure(object):
-    def __init__(self, hyd_type):
-    self.description = ('Object for holding properties for each type of'
-                        + ' hydrate structure (1,2,H)')
-    
-    self.supportflag = False
-        if hyd_type.lower() in s1alias:
-            self.hydstruc = 'S1'
-        elif hyd_type.lower() in s2alias:
-            self.hydstruc = 'S2'
-        elif hyd_type.lower() in sHalias:
-            self.hydstruc = 'SH'
+    def calc(self, compobjs, T, P, x):
+        # Raise flag if components change.
+        if compobjs != self.compobjs:
+            print('Warning: Action not supported.' +
+                  '\nComponents have changed. ' +
+                  '\nPlease create a new fugacity object.')
+            return None
         else:
-            self.supporflag = True
-            self.hydstruc = None
-            print('Warning: ' + hyd_tyep +
-                  ' hydrate structure is not currently supported!!')
+            # Re-calculate constants if pressure or temperature changes.
+            if self.T != T or self.P != P:
+                self.make_constant_mats(compobjs, T, P)
+                    
+        mu_H_RT = (self.gwbeta_RT + self.activity 
+                   + self.delta_mu_RT)
+        fug = np.exp(mu_H_RT - self.gw0_RT)
+        return fug
+        
+class HydrateStructure(object):
+    # Possible aliases of the hydrate structures
+    menu = {'s1': ('s1', '1', 'si', 'i', 'one'),
+            's2': ('s2', '2', 'sii', 'ii', 'two'),
+            'sh': ('sh', 'h')}
+    def __init__(self, hyd_type):
+        self.description = ('Object for holding properties for each type of'
+                            + ' hydrate structure (1,2,H)')
+
+        if hyd_type.lower() in self.menu['s1']:
+            self.hydstruc = 's1'
+        elif hyd_type.lower() in self.menu['s2']:
+            self.hydstruc = 's2'
+        elif hyd_type.lower() in self.menu['sh']:
+            self.hydstruc = 'sH'
+        else:
+            raise RuntimeError(hyd_type + ' is not a supported hydrate '
+                               + 'structure!! \nConsult '
+                               + '"HydrateStructure.menu" '
+                               + 'attribute for valid structures.')
            
-    if not self.supportflag:
-        if self.hydstruc == 'S1':
+        if self.hydstruc == 's1':
             self.v0 = 22.7712
             self.kappa = 3e-5
             self.a0_ast = 11.99245
@@ -168,7 +104,7 @@ class HydStructure(object):
             self.etam = {'small': 20, 'large': 24}
             self.Num_h2o = 46
             self.alf = {'1': 3.38496e-4, '2': 5.40099e-7, '3': -4.76946e-11}
-        elif self.hydstruc == 'S2':
+        elif self.hydstruc == 's2':
             self.v0 = 22.9456
             self.kappa = 3e-6
             self.a0_ast = 17.10000
@@ -180,7 +116,7 @@ class HydStructure(object):
             self.etam = {'small': 20, 'large': 28}
             self.Num_h2o = 136
             self.alf = {'1': 2.029776e-4, '2': 1.851168e-7, '3': -1.879455e-10}
-        elif self.hydstruc == 'SH':
+        elif self.hydstruc == 'sH':
             self.v0 = 24.2126
             self.kappa = 3e-7
             self.a0_ast = 11.09826
@@ -198,8 +134,8 @@ class HydStructure(object):
 #[~,Y_small,Y_large] = calc_Langmuir(comps,datatable,kij_param,T_0,P_0,phases,x,struc_typ,a0_ast,key);
 #
 #% Integrated solid volume
-#vol_wbeta_int = @(P,v,kappa,T) (v*exp(alf1*(T - T_0) + alf2*(T - T_0)^2 + ...
-#    alf3*(T - T_0)^3 - kappa*(P - P_0))/(-kappa));
+#vol_wbeta_int = @(P,v,kappa,T) (v*exp(alf1*(T - T_0) + alf2*(T - T_0)**2 + ...
+#    alf3*(T - T_0)**3 - kappa*(P - P_0))/(-kappa));
 #
 #% Volume dependence of guest
 #if length(gas_components)==1
@@ -223,8 +159,8 @@ class HydStructure(object):
 #% Perhaps I would need to actually iterate the above until the lattice
 #% parameter reached convergence
 #
-#% Convert lattice parameter to cm^3/mol
-#v_H_0 = 6.0221413e23/NH2O/1e24*(a_param).^3; 
+#% Convert lattice parameter to cm**3/mol
+#v_H_0 = 6.0221413e23/NH2O/1e24*(a_param).**3; 
 #if strcmp(struc_typ,'H')
 #    v_H_0 = v_0;
 #end
@@ -232,10 +168,10 @@ class HydStructure(object):
 #
 #% Equation 3.47 of Ballard Thesis
 #% Standard hydrate:
-#a0_cubed = a0_ast^3*6.0221413e23/NH2O/1e24;
-#g_wbeta_RT = gw_0beta/(R*T_0) - (12*T*hw_0beta - 12*T_0*hw_0beta + 12*T_0^2*cp_a0 + 6*T_0^3*cp_a1 + ...
-#    4*T_0^4*cp_a2 + 3*T_0^5*cp_a3 - 12*T*T_0*cp_a0 - 12*T*T_0^2*cp_a1 + 6*T^2*T_0*cp_a1 - ...
-#    6*T*T_0^3*cp_a2 + 2*T^3*T_0*cp_a2 - 4*T*T_0^4*cp_a3 + T^4*T_0*cp_a3 + 12*T*T_0*cp_a0*log(T) - ...
+#a0_cubed = a0_ast**3*6.0221413e23/NH2O/1e24;
+#g_wbeta_RT = gw_0beta/(R*T_0) - (12*T*hw_0beta - 12*T_0*hw_0beta + 12*T_0**2*cp_a0 + 6*T_0**3*cp_a1 + ...
+#    4*T_0**4*cp_a2 + 3*T_0**5*cp_a3 - 12*T*T_0*cp_a0 - 12*T*T_0**2*cp_a1 + 6*T**2*T_0*cp_a1 - ...
+#    6*T*T_0**3*cp_a2 + 2*T**3*T_0*cp_a2 - 4*T*T_0**4*cp_a3 + T**4*T_0*cp_a3 + 12*T*T_0*cp_a0*log(T) - ...
 #    12*T*T_0*cp_a0*log(T_0))/(12*R*T*T_0) + ...
 #    (1/(R*T))*1e-1*(vol_wbeta_int(P,a0_cubed,kappa0,T) - vol_wbeta_int(P_0,a0_cubed,kappa0,T));
 #
@@ -267,12 +203,12 @@ class HydStructure(object):
 #mu_H_RT = g_wbeta_RT + activity + delta_mu;
 #%
 #produce_aqueous_factors;
-#H20=s.H20;
+#h2o=s.h2o;
 #% Gibbs Free Energy in ideal gas phase
-#gw_0_RT = H20.g_io0/(R*T_0) - (12*T*H20.h_io0 - 12*T_0*H20.h_io0 + 12*T_0^2*H20.cp_a0 + 6*T_0^3*H20.cp_a1 + ...
-#    4*T_0^4*H20.cp_a2 + 3*T_0^5*H20.cp_a3 - 12*T*T_0*H20.cp_a0 - 12*T*T_0^2*H20.cp_a1 + 6*T^2*T_0*H20.cp_a1 - ...
-#    6*T*T_0^3*H20.cp_a2 + 2*T^3*T_0*H20.cp_a2 - 4*T*T_0^4*H20.cp_a3 + T^4*T_0*H20.cp_a3 + 12*T*T_0*H20.cp_a0*log(T) - ...
-#    12*T*T_0*H20.cp_a0*log(T_0))/(12*R*T*T_0);
+#gw_0_RT = h2o.g_io0/(R*T_0) - (12*T*h2o.h_io0 - 12*T_0*h2o.h_io0 + 12*T_0**2*h2o.cp_a0 + 6*T_0**3*h2o.cp_a1 + ...
+#    4*T_0**4*h2o.cp_a2 + 3*T_0**5*h2o.cp_a3 - 12*T*T_0*h2o.cp_a0 - 12*T*T_0**2*h2o.cp_a1 + 6*T**2*T_0*h2o.cp_a1 - ...
+#    6*T*T_0**3*h2o.cp_a2 + 2*T**3*T_0*h2o.cp_a2 - 4*T*T_0**4*h2o.cp_a3 + T**4*T_0*h2o.cp_a3 + 12*T*T_0*h2o.cp_a0*log(T) - ...
+#    12*T*T_0*h2o.cp_a0*log(T_0))/(12*R*T*T_0);
 #fug = exp(mu_H_RT - gw_0_RT);
 #
 #end
