@@ -16,11 +16,11 @@ import numpy as np
 R = 8.3144621  # universal gas constant
 T_0 = 298.15
 P_0 = 1
-cp = {'a0': 0.735409713*R,
-      'a1': 1.4180551e-2*R,
-      'a2': -1.72746e-5*R,
-      'a3': 63.5104e-9*R}
 
+# Parent class for a series of slightly different equations of state
+# --however, they will all be based on van der Waals-Platteeuw
+# The parent class is desigend to reduce redundancy. Some functions
+# will modified in the child class.
 class HydrateEos(object):
     def __init__(self, compobjs, T, P, structure='s1'):
         self.description = (
@@ -39,6 +39,13 @@ class HydrateEos(object):
                        if name == 'h2o'][0]
         self.Hs = HydrateStructure(structure)
         self.make_constant_mats(compobjs, T, P)
+        self.alt_fug_vec = np.zeros(self.Nc)
+        
+        # Transfer everything from the eos-specific dictionary to
+        # the Hs object for use in the rest of the class
+        # Note: 'eos_key' will be defined within sub-class
+        for k,v in dict.items(self.Hs.eos[self.eos_key]):
+            setattr(self.Hs, k, v)
         
     def make_constant_mats(self, compobjs, T, P):
         # Create all values that are invariant wrt T and P
@@ -49,12 +56,37 @@ class HydrateEos(object):
         # Add additional stuff for specific EOS's here
 
         return self
+        
+    def langmuir_consts(self, compobjs, T, P):
+        # Each child EOS will have a different way of calculating this.
+        C_small = np.zeros(self.Nc)
+        C_large = np.zeros(self.Nc)
+        
+        return C_small, C_large
+        
+    def calc_langmuir(self, C):
+        Y = np.zeros(self.Nc)
+        denominator = (1.0 + np.sum(C*self.alt_fug_vec))
+        for ii, comp in enumerate(self.compobjs):
+            if comp.compname != 'h2o':
+                Y[ii] = C[ii]*self.alt_fug_vec[ii]/denominator
+            else:
+                Y[ii] = 0
+        return Y
 
-    def Langmuir_constants(self, compobjs, T, P, x):
-        return self
+    def delta_mu_func(self, compobjs, T, P, x):
+        C_small, C_large = self.langmuir_consts(compobjs, T, P)
+        self.Y_small = self.calc_langmuir(C_small)
+        self.Y_large = self.calc_langmuir(C_large)
+
+        delta_mu = (
+            self.Hs.Nm['small']*np.log(1-np.sum(self.Y_small)) 
+            + self.Hs.Nm['large']*np.log(1-np.sum(self.Y_large))
+        )/self.Hs.Num_h2o
+        return delta_mu
         
         
-    def calc(self, compobjs, T, P, x):
+    def calc(self, compobjs, T, P, x, alt_fug):
         # Raise flag if components change.
         if compobjs != self.compobjs:
             print('Warning: Action not supported.' +
@@ -65,12 +97,36 @@ class HydrateEos(object):
             # Re-calculate constants if pressure or temperature changes.
             if self.T != T or self.P != P:
                 self.make_constant_mats(compobjs, T, P)
-                    
+        
+        self.alt_fug_vec = alt_fug
+        self.delta_mu_func(compobjs, T, P, x)
         mu_H_RT = (self.gwbeta_RT + self.activity 
                    + self.delta_mu_RT)
         fug = np.exp(mu_H_RT - self.gw0_RT)
         return fug
         
+
+class HvdwpmEos(HydrateEos):
+    cp = {'a0': 0.735409713*R,
+          'a1': 1.4180551e-2*R,
+          'a2': -1.72746e-5*R,
+          'a3': 63.5104e-9*R}
+    eos_key = 'hvdwpm'
+      
+    def __init__(self, compobjs, T, P, structure='s1'):
+        # Inheret all prroperties from HydrateEos
+        HydrateEos.__init__(self, compobjs, T, P, structure='s1')                        
+            
+    
+    def make_constant_mats(self, compobjs, T, P):
+        # Do standard stuff
+        HydrateEos.make_constant_mats(self, compobjs, T, P)
+
+        return self
+         
+    
+        
+# Properties of each hydrate structure necessary for further calculation.         
 class HydrateStructure(object):
     # Possible aliases of the hydrate structures
     menu = {'s1': ('s1', '1', 'si', 'i', 'one'),
@@ -93,41 +149,48 @@ class HydrateStructure(object):
                                + 'attribute for valid structures.')
            
         if self.hydstruc == 's1':
-            self.v0 = 22.7712
-            self.kappa = 3e-5
-            self.a0_ast = 11.99245
-            self.gw_0beta = -235537.85
-            self.hw_0beta = -291758.77
-            self.a_fit = 25.74
-            self.b_fit = -481.32
+            self.eos = {'hvdwpm': {'v0': 22.7712,
+                                   'kappa': 3e-5,
+                                   'a0_ast': 11.99245,
+                                   'gw_0beta': -235537.85,
+                                   'hw_0beta': -291758.77,
+                                   'a_fit': 25.74,
+                                   'b_fit': -481.32,
+                                   'alf': {'1': 3.38496e-4, 
+                                           '2': 5.40099e-7, 
+                                           '3': -4.76946e-11}}}
             self.Nm = {'small': 2, 'large': 6}
             self.etam = {'small': 20, 'large': 24}
             self.Num_h2o = 46
-            self.alf = {'1': 3.38496e-4, '2': 5.40099e-7, '3': -4.76946e-11}
         elif self.hydstruc == 's2':
-            self.v0 = 22.9456
-            self.kappa = 3e-6
-            self.a0_ast = 17.10000
-            self.gw_0beta = -235627.53
-            self.hw_0beta = -292044.10
-            self.a_fit = 260
-            self.b_fit = -68.64
+            self.eos = {'hvdwpm': {'v0': 22.9456,
+                                   'kappa': 3e-6,
+                                   'a0_ast': 17.10000,
+                                   'gw_0beta': -235627.53,
+                                   'hw_0beta': -292044.10,
+                                   'a_fit': 260,
+                                   'b_fit': -68.64,
+                                   'alf': {'1': 2.029776e-4, 
+                                           '2': 1.851168e-7, 
+                                           '3': -1.879455e-10}}}
+
             self.Nm = {'small': 16, 'large': 8}
             self.etam = {'small': 20, 'large': 28}
             self.Num_h2o = 136
-            self.alf = {'1': 2.029776e-4, '2': 1.851168e-7, '3': -1.879455e-10}
         elif self.hydstruc == 'sH':
-            self.v0 = 24.2126
-            self.kappa = 3e-7
-            self.a0_ast = 11.09826
-            self.gw_0beta = -2355491.02
-            self.hw_0beta = -291979.26
-            self.a_fit = 0
-            self.b_fit = 0
+            self.eos = {'hvdwpm': {'v0': 24.2126,
+                                   'kappa': 3e-7,
+                                   'a0_ast': 11.09826,
+                                   'gw_0beta': -2355491.02,
+                                   'hw_0beta': -291979.26,
+                                   'a_fit': 0,
+                                   'b_fit': 0,
+                                   'alf': {'1': 3.575490e-4, 
+                                           '2': 6.294390e-7, 
+                                           '3': 0}}} 
             self.Nm = {'small': 3, 'large': 1}
             self.etam = {'small': 20, 'large': 36}
             self.Num_h2o = 46
-            self.alf = {'1': 3.575490e-4, '2': 6.294390e-7, '3': 0} 
 #
 #% Calculate cage occupancies at T_0,P_0
 #
