@@ -30,7 +30,9 @@ class HydrateEos(object):
         # Set up arrays and matrices for future calculation
         self.Nc = len(compobjs)
         self.compobjs = compobjs
-        self.gwbeta_RT = np.zeros(1)
+        self.gwbeta_RT_cons = np.zeros(1)
+        self.volume_int = np.zeros(1)
+        self.volume = np.zeros(1)
         self.activity = np.zeros(1)
         self.delta_mu_RT = np.zeros(1)
         self.gw0_RT = np.zeros(1)
@@ -54,7 +56,6 @@ class HydrateEos(object):
         self.gw0_RT = compobjs[self.h2oind].gibbs_ideal(T, P)
         
         # Add additional stuff for specific EOS's here
-
         return self
         
     def langmuir_consts(self, compobjs, T, P):
@@ -85,6 +86,8 @@ class HydrateEos(object):
         )/self.Hs.Num_h2o
         return delta_mu
         
+    def fugacity_calc(self, compobjs, T, P, x, alt_fug):
+        pass
         
     def calc(self, compobjs, T, P, x, alt_fug):
         # Raise flag if components change.
@@ -97,12 +100,10 @@ class HydrateEos(object):
             # Re-calculate constants if pressure or temperature changes.
             if self.T != T or self.P != P:
                 self.make_constant_mats(compobjs, T, P)
+                
         
-        self.alt_fug_vec = alt_fug
         self.delta_mu_func(compobjs, T, P, x)
-        mu_H_RT = (self.gwbeta_RT + self.activity 
-                   + self.delta_mu_RT)
-        fug = np.exp(mu_H_RT - self.gw0_RT)
+        fug = self.fugacity_calc(compobjs, T, P, x, alt_fug)
         return fug
         
 
@@ -115,14 +116,117 @@ class HvdwpmEos(HydrateEos):
       
     def __init__(self, compobjs, T, P, structure='s1'):
         # Inheret all prroperties from HydrateEos
-        HydrateEos.__init__(self, compobjs, T, P, structure='s1')                        
+        HydrateEos.__init__(self, compobjs, T, P, structure='s1')
+        self.kappa = np.zeros(1)
+        self.kappa0 = self.Hs.kappa
+        self.a0_cubed = self.volume_func(self.Hs.a0_ast)
+        
+        for ii, comp in enumerate(compobjs):
+            self.kappa_vec[ii] = comp.kappa[self.Hs.hydstruc]
+            self.rep_sm_vec[ii] = comp.rep[self.Hs.hydstruc]
+            self.rep_lg_ve[ii] = comp.rep[self.Hs.hydstruc]
+            self.D_vec[ii] = comp.diam
+    
+    def volume_func(self, a_param):
+        if self.Hs.hydstruc != 'sH':
+            v = 6.0221413e23/self.Hs.Num_h2o/1e24*(a_param)**3
+        else:
+            v = self.Hs.v0
+            
+        return v
+
+#        if self.Hs.hydstruc != 'sH':
+#            self.v_H_0 = 6.0221413e23/self.Hs.Num_h2o/1e24*(a_param)**3
+#        else:
+#            self.v_H_0 = self.Hs.v0              
             
     
     def make_constant_mats(self, compobjs, T, P):
         # Do standard stuff
         HydrateEos.make_constant_mats(self, compobjs, T, P)
-
+        
+        # TODO: Work out what else goes here...?
+        # Multiply the following by 'volume'
+        self.vol_int = (lambda v,kappa:(
+            v*np.exp(self.Hs.alf[1]*(T - T_0)+ self.Hs.alf[2]*(T - T_0)**2 
+                     + self.Hs.alf[3]*(T - T_0)**3 - kappa*(P - P_0))
+        )/(-kappa))
+        
+        self.gwbeta_RT = (
+            (self.Hs.gw_0beta/(R*T_0) - (12*T*self.Hs.hw_0beta 
+             - 12*T_0*self.Hs.hw_0beta + 12*T_0**2*self.cp['a0'] 
+             + 6*T_0**3*self.cp['a1'] + 4*T_0**4*self.cp['a2'] 
+             + 3*T_0**5*self.cp['a3'] - 12*T*T_0*self.cp['a0'] 
+             - 12*T*T_0**2*self.cp['a1'] + 6*T**2*T_0*self.cp['a1'] 
+             - 6*T*T_0**3*self.cp['a2'] + 2*T**3*T_0*self.cp['a2'] 
+             - 4*T*T_0**4*self.cp['a3'] + T**4*T_0*self.cp['a3'] 
+             + 12*T*T_0*self.cp['a0']*np.log(T)
+             - 12*T*T_0*self.cp['a0']*np.log(T_0)))/(12*R*T*T_0)
+            + (self.vol_int(P,self.a0_cubed,self.kappa0,T) 
+               - self.vol_int(P_0,self.a0_cubed,self.kappa0,T))*1e-1/(R*T)
+        )
         return self
+        
+    def unknown_func(self):
+        small_const = (
+            (1 + self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small
+            / (1 + (self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small)
+        )
+        
+        if self.Nc>2:
+            self.repulsive_small = np.sum(small_const)
+        else:
+            self.repulsive_small = (small_const*np.exp(
+                self.D_vec - np.sum(self.Y_small*self.D_vec)
+            ))
+        
+        self.repulsive_large = (
+            (1 + self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large
+            / (1 + (self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large)
+        )
+      
+        return self
+        
+    def kappa_func(self):
+        if self.Nc>2:
+            kappa = np.sum(self.kappa_vec)
+        else:
+            kappa = np.sum(self.kappa_vec*self.Y_large)
+            
+        return kappa
+        
+    def activity_func(self, v_H_0):
+        kappa_wtavg = self.kappa_func(self)
+        activity = (
+            (v_H_0 - self.a0_cubed)/R*(self.Hs.a_fit/T_0 
+                                       + self.Hs.b_fit*(1/T - 1/T_0))
+            + ((self.vol_int(P,v_H_0,kappa_wtavg,T) 
+                - self.vol_int(P,self.a0_cubed,self.kappa0,T)) 
+              - (self.vol_int(P_0,v_H_0,kappa_wtavg,T) 
+                 - self.vol_int(P_0,self.a0_cubed,self.kappa0,T)))*1e-1/(R*T)
+        )
+
+        return activity
+        
+        
+    def convert_a_param(self):
+        v = (self.Hs.a0_ast 
+             + (self.Hs.Nm['small']
+                * np.sum(self.repulsive_small*self.rep_sm_vec)) 
+             + (self.Hs.Nm['large']
+                *np.sum(self.repulsive_large*self.rep_lg_vec))
+             )
+        return v
+        
+    def fugacity_calc(self, compobjs, T, P, x, alt_fug):     
+        self.alt_fug_vec = alt_fug
+        # It may be wise to insert a while loop to monitor changes C
+        delta_mu_RT = self.delta_mu_func(compobjs, T, P, x)
+        v_H = self.convert_a_param()
+        activity = self.activity_func(v_H)
+        mu_H_RT = self.gwbeta_RT + activity + delta_mu_RT
+        fug = self.exp(mu_H_RT - self.gw_0_RT)
+        return fug
          
     
         
@@ -156,9 +260,9 @@ class HydrateStructure(object):
                                    'hw_0beta': -291758.77,
                                    'a_fit': 25.74,
                                    'b_fit': -481.32,
-                                   'alf': {'1': 3.38496e-4, 
-                                           '2': 5.40099e-7, 
-                                           '3': -4.76946e-11}}}
+                                   'alf': {1: 3.38496e-4, 
+                                           2: 5.40099e-7, 
+                                           3: -4.76946e-11}}}
             self.Nm = {'small': 2, 'large': 6}
             self.etam = {'small': 20, 'large': 24}
             self.Num_h2o = 46
@@ -170,9 +274,9 @@ class HydrateStructure(object):
                                    'hw_0beta': -292044.10,
                                    'a_fit': 260,
                                    'b_fit': -68.64,
-                                   'alf': {'1': 2.029776e-4, 
-                                           '2': 1.851168e-7, 
-                                           '3': -1.879455e-10}}}
+                                   'alf': {1: 2.029776e-4, 
+                                           2: 1.851168e-7, 
+                                           3: -1.879455e-10}}}
 
             self.Nm = {'small': 16, 'large': 8}
             self.etam = {'small': 20, 'large': 28}
@@ -185,93 +289,9 @@ class HydrateStructure(object):
                                    'hw_0beta': -291979.26,
                                    'a_fit': 0,
                                    'b_fit': 0,
-                                   'alf': {'1': 3.575490e-4, 
-                                           '2': 6.294390e-7, 
-                                           '3': 0}}} 
+                                   'alf': {1: 3.575490e-4, 
+                                           2: 6.294390e-7, 
+                                           3: 0}}} 
             self.Nm = {'small': 3, 'large': 1}
             self.etam = {'small': 20, 'large': 36}
             self.Num_h2o = 46
-#
-#% Calculate cage occupancies at T_0,P_0
-#
-#[~,Y_small,Y_large] = calc_Langmuir(comps,datatable,kij_param,T_0,P_0,phases,x,struc_typ,a0_ast,key);
-#
-#% Integrated solid volume
-#vol_wbeta_int = @(P,v,kappa,T) (v*exp(alf1*(T - T_0) + alf2*(T - T_0)**2 + ...
-#    alf3*(T - T_0)**3 - kappa*(P - P_0))/(-kappa));
-#
-#% Volume dependence of guest
-#if length(gas_components)==1
-#    func_small = @ (argY,argeta) ((1 + argeta./NH2O).*argY./(1 + (argeta./NH2O).*argY));%.*exp(D_array - sum(argY.*D_array)); %Not sure what to do about this...perhaps it should only be valid for more than one guest!!
-#else
-#    func_small = @ (argY,argeta) ((1 + argeta./NH2O).*argY./(1 + (argeta./NH2O).*argY)).*exp(D_array - sum(argY.*D_array));
-#end
-#func_large = @ (argY,argeta) ((1 + argeta./NH2O).*argY./(1 + (argeta./NH2O).*argY));
-#
-#% Lattice parameter of "real" (non-empty) hydrate
-#a_param = a0_ast + Nm_small*sum(func_small(Y_small,etam_small).*delr_small) + ...
-#    Nm_large*sum(func_large(Y_large,etam_large).*delr_large);
-#
-#% Volume dependence of guest with real lattice parameter
-#[~,Y_small,Y_large] = calc_Langmuir(comps,datatable,kij_param,...
-#    T_0,P_0,phases,x,struc_typ,a_param,key);
-#
-#a_param = a0_ast + Nm_small*sum(func_small(Y_small,etam_small).*delr_small) + ...
-#    Nm_large*sum(func_large(Y_large,etam_large).*delr_large);
-#
-#% Perhaps I would need to actually iterate the above until the lattice
-#% parameter reached convergence
-#
-#% Convert lattice parameter to cm**3/mol
-#v_H_0 = 6.0221413e23/NH2O/1e24*(a_param).**3; 
-#if strcmp(struc_typ,'H')
-#    v_H_0 = v_0;
-#end
-#
-#
-#% Equation 3.47 of Ballard Thesis
-#% Standard hydrate:
-#a0_cubed = a0_ast**3*6.0221413e23/NH2O/1e24;
-#g_wbeta_RT = gw_0beta/(R*T_0) - (12*T*hw_0beta - 12*T_0*hw_0beta + 12*T_0**2*cp_a0 + 6*T_0**3*cp_a1 + ...
-#    4*T_0**4*cp_a2 + 3*T_0**5*cp_a3 - 12*T*T_0*cp_a0 - 12*T*T_0**2*cp_a1 + 6*T**2*T_0*cp_a1 - ...
-#    6*T*T_0**3*cp_a2 + 2*T**3*T_0*cp_a2 - 4*T*T_0**4*cp_a3 + T**4*T_0*cp_a3 + 12*T*T_0*cp_a0*log(T) - ...
-#    12*T*T_0*cp_a0*log(T_0))/(12*R*T*T_0) + ...
-#    (1/(R*T))*1e-1*(vol_wbeta_int(P,a0_cubed,kappa0,T) - vol_wbeta_int(P_0,a0_cubed,kappa0,T));
-#
-#% Determine cage occupancty at T,P
-#[delta_mu,Y_small,Y_large] = calc_Langmuir(comps,datatable,kij_param,...
-#    T,P,phases,x,struc_typ,a_param,key);
-#
-#if length(gas_components)==1
-#    kappa_real = kappa_array;
-#else
-#    kappa_real = sum(kappa_array.*Y_large);
-#end
-#
-#% Determine activity as deviation from standard volume
-#% I'm still not sure if I should be taking v_beta as v_0 or a0_cubed...
-#% The text is very confusing in this regard.
-#activity = (v_H_0 - a0_cubed)/R*(a/T_0 + b*(1/T - 1/T_0)) + ...
-#    (1/(R*T))*1e-1*((vol_wbeta_int(P,v_H_0,kappa_real,T) - vol_wbeta_int(P,a0_cubed,kappa0,T)) - ...
-#    (vol_wbeta_int(P_0,v_H_0,kappa_real,T) - vol_wbeta_int(P_0,a0_cubed,kappa0,T)));
-#
-#v_s_aparam = vol_wbeta_int(P,v_H_0,kappa_real,T)*-kappa_real;
-#v_s_a0 = vol_wbeta_int(P,a0_cubed,kappa_real,T)*-kappa_real;
-#v_s_v0 = vol_wbeta_int(P,a0_cubed,kappa_real,T)*-kappa_real;
-#
-#
-#
-#
-#% Determine chemical potential
-#mu_H_RT = g_wbeta_RT + activity + delta_mu;
-#%
-#produce_aqueous_factors;
-#h2o=s.h2o;
-#% Gibbs Free Energy in ideal gas phase
-#gw_0_RT = h2o.g_io0/(R*T_0) - (12*T*h2o.h_io0 - 12*T_0*h2o.h_io0 + 12*T_0**2*h2o.cp_a0 + 6*T_0**3*h2o.cp_a1 + ...
-#    4*T_0**4*h2o.cp_a2 + 3*T_0**5*h2o.cp_a3 - 12*T*T_0*h2o.cp_a0 - 12*T*T_0**2*h2o.cp_a1 + 6*T**2*T_0*h2o.cp_a1 - ...
-#    6*T*T_0**3*h2o.cp_a2 + 2*T**3*T_0*h2o.cp_a2 - 4*T*T_0**4*h2o.cp_a3 + T**4*T_0*h2o.cp_a3 + 12*T*T_0*h2o.cp_a0*log(T) - ...
-#    12*T*T_0*h2o.cp_a0*log(T_0))/(12*R*T*T_0);
-#fug = exp(mu_H_RT - gw_0_RT);
-#
-#end
