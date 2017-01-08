@@ -6,16 +6,19 @@ Created on Wed Jan  4 21:30:38 2017
 @author: kdarnell
 """
 import numpy as np
+from scipy.integrate import quad
 
 """
     This is an equation of state (EOS) for water in the hydrate phase
-    in the presence of multiple gases using the Ballard-modified 
+    in the presence of multiple gases using the Ballard-modified
     van der Waals Platteeuw EOS.
 """
 # Constants
 R = 8.3144621  # universal gas constant
 T_0 = 298.15
 P_0 = 1
+k = 1.3806488e-23
+
 
 # Parent class for a series of slightly different equations of state
 # --however, they will all be based on van der Waals-Platteeuw
@@ -40,31 +43,33 @@ class HydrateEos(object):
         self.h2oind = [ii for ii, name in enumerate(self.compnames)
                        if name == 'h2o'][0]
         self.Hs = HydrateStructure(structure)
-        self.make_constant_mats(compobjs, T, P)
         self.alt_fug_vec = np.zeros(self.Nc)
-        
+        self.Y_small = np.zeros(self.Nc)
+        self.Y_large = np.zeros(self.Nc)
+
         # Transfer everything from the eos-specific dictionary to
         # the Hs object for use in the rest of the class
         # Note: 'eos_key' will be defined within sub-class
-        for k,v in dict.items(self.Hs.eos[self.eos_key]):
+        for k, v in dict.items(self.Hs.eos[self.eos_key]):
             setattr(self.Hs, k, v)
-        
+
+
     def make_constant_mats(self, compobjs, T, P):
         # Create all values that are invariant wrt T and P
         self.T = T
         self.P = P
         self.gw0_RT = compobjs[self.h2oind].gibbs_ideal(T, P)
-        
+
         # Add additional stuff for specific EOS's here
         return self
-        
+
     def langmuir_consts(self, compobjs, T, P):
         # Each child EOS will have a different way of calculating this.
         C_small = np.zeros(self.Nc)
         C_large = np.zeros(self.Nc)
-        
+
         return C_small, C_large
-        
+
     def calc_langmuir(self, C):
         Y = np.zeros(self.Nc)
         denominator = (1.0 + np.sum(C*self.alt_fug_vec))
@@ -81,14 +86,14 @@ class HydrateEos(object):
         self.Y_large = self.calc_langmuir(C_large)
 
         delta_mu = (
-            self.Hs.Nm['small']*np.log(1-np.sum(self.Y_small)) 
+            self.Hs.Nm['small']*np.log(1-np.sum(self.Y_small))
             + self.Hs.Nm['large']*np.log(1-np.sum(self.Y_large))
         )/self.Hs.Num_h2o
         return delta_mu
-        
+
     def fugacity_calc(self, compobjs, T, P, x, alt_fug):
         pass
-        
+
     def calc(self, compobjs, T, P, x, alt_fug):
         # Raise flag if components change.
         if compobjs != self.compobjs:
@@ -100,12 +105,12 @@ class HydrateEos(object):
             # Re-calculate constants if pressure or temperature changes.
             if self.T != T or self.P != P:
                 self.make_constant_mats(compobjs, T, P)
-                
-        
+
+
         self.delta_mu_func(compobjs, T, P, x)
         fug = self.fugacity_calc(compobjs, T, P, x, alt_fug)
         return fug
-        
+
 
 class HvdwpmEos(HydrateEos):
     cp = {'a0': 0.735409713*R,
@@ -113,145 +118,232 @@ class HvdwpmEos(HydrateEos):
           'a2': -1.72746e-5*R,
           'a3': 63.5104e-9*R}
     eos_key = 'hvdwpm'
-      
+
     def __init__(self, compobjs, T, P, structure='s1'):
         # Inheret all prroperties from HydrateEos
-        HydrateEos.__init__(self, compobjs, T, P, structure='s1')
+        super().__init__(compobjs, T, P, structure)
         self.kappa = np.zeros(1)
         self.kappa0 = self.Hs.kappa
         self.a0_cubed = self.volume_func(self.Hs.a0_ast)
-        
+        self.kappa_vec = np.zeros(self.Nc)
+        self.rep_sm_vec = np.zeros(self.Nc)
+        self.rep_lg_vec = np.zeros(self.Nc)
+        self.D_vec = np.zeros(self.Nc)
+
+        self.make_constant_mats(compobjs, T, P)
+
+
         for ii, comp in enumerate(compobjs):
-            self.kappa_vec[ii] = comp.kappa[self.Hs.hydstruc]
-            self.rep_sm_vec[ii] = comp.rep[self.Hs.hydstruc]
-            self.rep_lg_ve[ii] = comp.rep[self.Hs.hydstruc]
+            self.kappa_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['kappa']
+            self.rep_sm_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['rep']['small']
+            self.rep_lg_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['rep']['large']
             self.D_vec[ii] = comp.diam
-    
+
     def volume_func(self, a_param):
         if self.Hs.hydstruc != 'sH':
             v = 6.0221413e23/self.Hs.Num_h2o/1e24*(a_param)**3
         else:
             v = self.Hs.v0
-            
+
         return v
 
-#        if self.Hs.hydstruc != 'sH':
-#            self.v_H_0 = 6.0221413e23/self.Hs.Num_h2o/1e24*(a_param)**3
-#        else:
-#            self.v_H_0 = self.Hs.v0              
-            
-    
     def make_constant_mats(self, compobjs, T, P):
         # Do standard stuff
-        HydrateEos.make_constant_mats(self, compobjs, T, P)
-        
-        # TODO: Work out what else goes here...?
-        # Multiply the following by 'volume'
-        self.vol_int = (lambda v,kappa:(
-            v*np.exp(self.Hs.alf[1]*(T - T_0)+ self.Hs.alf[2]*(T - T_0)**2 
-                     + self.Hs.alf[3]*(T - T_0)**3 - kappa*(P - P_0))
-        )/(-kappa))
-        
+        super().make_constant_mats(compobjs, T, P)
+
         self.gwbeta_RT = (
-            (self.Hs.gw_0beta/(R*T_0) - (12*T*self.Hs.hw_0beta 
-             - 12*T_0*self.Hs.hw_0beta + 12*T_0**2*self.cp['a0'] 
-             + 6*T_0**3*self.cp['a1'] + 4*T_0**4*self.cp['a2'] 
-             + 3*T_0**5*self.cp['a3'] - 12*T*T_0*self.cp['a0'] 
-             - 12*T*T_0**2*self.cp['a1'] + 6*T**2*T_0*self.cp['a1'] 
-             - 6*T*T_0**3*self.cp['a2'] + 2*T**3*T_0*self.cp['a2'] 
-             - 4*T*T_0**4*self.cp['a3'] + T**4*T_0*self.cp['a3'] 
+            (self.Hs.gw_0beta/(R*T_0) - (12*T*self.Hs.hw_0beta
+             - 12*T_0*self.Hs.hw_0beta + 12*T_0**2*self.cp['a0']
+             + 6*T_0**3*self.cp['a1'] + 4*T_0**4*self.cp['a2']
+             + 3*T_0**5*self.cp['a3'] - 12*T*T_0*self.cp['a0']
+             - 12*T*T_0**2*self.cp['a1'] + 6*T**2*T_0*self.cp['a1']
+             - 6*T*T_0**3*self.cp['a2'] + 2*T**3*T_0*self.cp['a2']
+             - 4*T*T_0**4*self.cp['a3'] + T**4*T_0*self.cp['a3']
              + 12*T*T_0*self.cp['a0']*np.log(T)
              - 12*T*T_0*self.cp['a0']*np.log(T_0)))/(12*R*T*T_0)
-            + (self.vol_int(P,self.a0_cubed,self.kappa0,T) 
+            + (self.vol_int(P,self.a0_cubed,self.kappa0,T)
                - self.vol_int(P_0,self.a0_cubed,self.kappa0,T))*1e-1/(R*T)
         )
         return self
-        
+
+    def vol_int(self, T, P, v, kappa):
+        v_int = (
+            v*np.exp(self.Hs.alf[1]*(T - T_0)+ self.Hs.alf[2]*(T - T_0)**2
+                     + self.Hs.alf[3]*(T - T_0)**3 - kappa*(P - P_0))
+        )/(-kappa)
+        return v_int
+
     def unknown_func(self):
         small_const = (
             (1 + self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small
             / (1 + (self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small)
         )
-        
+
         if self.Nc>2:
             self.repulsive_small = np.sum(small_const)
         else:
             self.repulsive_small = (small_const*np.exp(
                 self.D_vec - np.sum(self.Y_small*self.D_vec)
             ))
-        
+
         self.repulsive_large = (
             (1 + self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large
             / (1 + (self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large)
         )
-      
+
         return self
-        
+
     def kappa_func(self):
         if self.Nc>2:
             kappa = np.sum(self.kappa_vec)
         else:
             kappa = np.sum(self.kappa_vec*self.Y_large)
-            
+
         return kappa
-        
-    def activity_func(self, v_H_0):
-        kappa_wtavg = self.kappa_func(self)
+
+    def activity_func(self, T, P, v_H_0):
+        kappa_wtavg = self.kappa_func()
         activity = (
-            (v_H_0 - self.a0_cubed)/R*(self.Hs.a_fit/T_0 
+            (v_H_0 - self.a0_cubed)/R*(self.Hs.a_fit/T_0
                                        + self.Hs.b_fit*(1/T - 1/T_0))
-            + ((self.vol_int(P,v_H_0,kappa_wtavg,T) 
-                - self.vol_int(P,self.a0_cubed,self.kappa0,T)) 
-              - (self.vol_int(P_0,v_H_0,kappa_wtavg,T) 
+            + ((self.vol_int(P,v_H_0,kappa_wtavg,T)
+                - self.vol_int(P,self.a0_cubed,self.kappa0,T))
+              - (self.vol_int(P_0,v_H_0,kappa_wtavg,T)
                  - self.vol_int(P_0,self.a0_cubed,self.kappa0,T)))*1e-1/(R*T)
         )
 
         return activity
-        
-        
+
+
     def convert_a_param(self):
-        v = (self.Hs.a0_ast 
+        self.unknown_func()
+        v = (self.Hs.a0_ast
              + (self.Hs.Nm['small']
-                * np.sum(self.repulsive_small*self.rep_sm_vec)) 
+                * np.sum(self.repulsive_small*self.rep_sm_vec))
              + (self.Hs.Nm['large']
                 *np.sum(self.repulsive_large*self.rep_lg_vec))
              )
         return v
+
+    def delta_func(self, N, Rn, aj, r):
+        delta = ((1.0 - r/Rn - aj/Rn)**(-N) - (1.0 + r/Rn - aj/Rn)**(-N))/N
+        return delta
+
+    def w_func(self, zn, eps_k, r, Rn, sigma, aj):
+        if self.Hs.hydstruc == 's1':
+            w = (2*zn*eps_k*(sigma**12/(Rn**11*r)
+                             * (self.delta_func(10, Rn, aj, r)
+                                + (aj/Rn)*self.delta_func(11, Rn, aj, r))
+                             - sigma**6/(Rn**5*r)
+                             * (self.delta_func(4, Rn, aj, r)
+                                + (aj/Rn)*self.delta_func(5, Rn, aj, r))))
+        return w
+
+    def integrand_sm(self, r, R1, R2, z1, z2, eps_k, sigma, aj, T):
+        output = np.exp((-1.0/T)*r**2
+                        * (self.w_func(z1, eps_k, r, R1, sigma, aj)
+                           + self.w_func(z2, eps_k, r, R2, sigma, aj)))
+        return output
+
+    def integrand_lg(self, r, R1, R2, z1, z2, eps_k, sigma, aj, T):
+        output = np.exp((-1.0/T)*r**2
+                        * (self.w_func(z1, eps_k, r, R1, sigma, aj)
+                           + self.w_func(z2, eps_k, r, R2, sigma, aj)
+                           + self.w_func(z3, eps_k, r, R3, sigma, aj)
+                           + self.w_func(z4, eps_k, r, R4, sigma, aj)))
+        return output
+
+    def compute_integral_constants(self, a_new):
+        a_factor = a_new/self.Hs.a_norm
+        self.R1_sm = self.Hs.R['sm'][1]*a_factor
+        self.R2_sm = self.Hs.R['sm'][2]*a_factor
+        self.R1_lg = self.Hs.R['lg'][1]*a_factor
+        self.R2_lg = self.Hs.R['lg'][2]*a_factor
+        self.R3_lg = self.Hs.R['lg'][3]*a_factor
+        self.R4_lg = self.Hs.R['lg'][4]*a_factor
+        return self
         
-    def fugacity_calc(self, compobjs, T, P, x, alt_fug):     
+        
+    # TODO: Work on testing this
+    def langmuir_consts(self, compobjs, T, P, a_new):
+        self.compute_integral_constants(a_new)
+        C_small = np.zeros(self.Nc)
+        C_large = np.zeros(self.Nc)
+        for ii, comp in enumerate(compobjs):
+            if comp.compname != 'h2o':
+                C_small[ii] = (1e-10**3*4*np.pi/(k*T)*(
+                    quad(self.integrand_sm,
+                         0,
+                         self.R1_sm - comp.HvdWPM['kih']['a'],
+                         args=(self.R1_sm,
+                               self.R2_sm,
+                               self.Hs.z['sm'][1],
+                               self.Hs.z['sm'][2],
+                               comp.HvdWPM['kih']['epsk'],
+                               comp.HvdWPM['kih']['sig'],
+                               comp.HvdWPM['kih']['a'],
+                               T,))
+                ))
+
+                C_large[ii] = (1e-10**3*4*np.pi/(k*T)*(
+                    quad(self.integrand_lg,
+                         0,
+                         self.R2_lg
+                         - comp.HvdWPM ['kih']['a'],
+                         args=(self.R1_lg,
+                               self.R2_lg,
+                               self.R3_lg,
+                               self.R4_lg,
+                               self.Hs.z['lg'][1],
+                               self.Hs.z['lg'][2],
+                               self.Hs.z['lg'][3],
+                               self.Hs.z['lg'][4],
+                               comp.HvdWPM['kih']['epsk'],
+                               comp.HvdWPM['kih']['sig'],
+                               comp.HvdWPM['kih']['a'],
+                               T,))
+                ))
+            else:
+                C_small[ii] = 0
+                C_large[ii] = 0
+
+        return C_small, C_large
+
+
+    def fugacity_calc(self, compobjs, T, P, x, alt_fug):
         self.alt_fug_vec = alt_fug
         # It may be wise to insert a while loop to monitor changes C
         delta_mu_RT = self.delta_mu_func(compobjs, T, P, x)
         v_H = self.convert_a_param()
-        activity = self.activity_func(v_H)
+        activity = self.activity_func(T, P, v_H)
         mu_H_RT = self.gwbeta_RT + activity + delta_mu_RT
         fug = self.exp(mu_H_RT - self.gw_0_RT)
         return fug
-         
-    
-        
-# Properties of each hydrate structure necessary for further calculation.         
+
+
+
+# Properties of each hydrate structure necessary for further calculation.
 class HydrateStructure(object):
     # Possible aliases of the hydrate structures
-    menu = {'s1': ('s1', '1', 'si', 'i', 'one'),
-            's2': ('s2', '2', 'sii', 'ii', 'two'),
+    menu = {'s1': ('s1', '1', 1, 'si', 'i', 'one'),
+            's2': ('s2', '2', 2, 'sii', 'ii', 'two'),
             'sh': ('sh', 'h')}
     def __init__(self, hyd_type):
         self.description = ('Object for holding properties for each type of'
                             + ' hydrate structure (1,2,H)')
 
-        if hyd_type.lower() in self.menu['s1']:
+        if str(hyd_type).lower() in self.menu['s1']:
             self.hydstruc = 's1'
-        elif hyd_type.lower() in self.menu['s2']:
+        elif str(hyd_type).lower() in self.menu['s2']:
             self.hydstruc = 's2'
-        elif hyd_type.lower() in self.menu['sh']:
+        elif str(hyd_type).lower() in self.menu['sh']:
             self.hydstruc = 'sH'
         else:
             raise RuntimeError(hyd_type + ' is not a supported hydrate '
                                + 'structure!! \nConsult '
                                + '"HydrateStructure.menu" '
                                + 'attribute for valid structures.')
-           
+
         if self.hydstruc == 's1':
             self.eos = {'hvdwpm': {'v0': 22.7712,
                                    'kappa': 3e-5,
@@ -260,9 +352,22 @@ class HydrateStructure(object):
                                    'hw_0beta': -291758.77,
                                    'a_fit': 25.74,
                                    'b_fit': -481.32,
-                                   'alf': {1: 3.38496e-4, 
-                                           2: 5.40099e-7, 
-                                           3: -4.76946e-11}}}
+                                   'alf': {1: 3.38496e-4,
+                                           2: 5.40099e-7,
+                                           3: -4.76946e-11},
+                                   'a_norm': 12.03,
+                                   'R': {'sm': {1: 3.83,
+                                                2: 3.96},
+                                         'lg': {1: 4.47,
+                                                2: 4.06,
+                                                3: 4.645,
+                                                4: 4.25}},
+                                   'z': {'sm': {1: 8,
+                                                2: 12},
+                                         'lg': {1: 8,
+                                                2: 8,
+                                                3: 4,
+                                                4: 4}}}}
             self.Nm = {'small': 2, 'large': 6}
             self.etam = {'small': 20, 'large': 24}
             self.Num_h2o = 46
@@ -274,8 +379,8 @@ class HydrateStructure(object):
                                    'hw_0beta': -292044.10,
                                    'a_fit': 260,
                                    'b_fit': -68.64,
-                                   'alf': {1: 2.029776e-4, 
-                                           2: 1.851168e-7, 
+                                   'alf': {1: 2.029776e-4,
+                                           2: 1.851168e-7,
                                            3: -1.879455e-10}}}
 
             self.Nm = {'small': 16, 'large': 8}
@@ -289,9 +394,9 @@ class HydrateStructure(object):
                                    'hw_0beta': -291979.26,
                                    'a_fit': 0,
                                    'b_fit': 0,
-                                   'alf': {1: 3.575490e-4, 
-                                           2: 6.294390e-7, 
-                                           3: 0}}} 
+                                   'alf': {1: 3.575490e-4,
+                                           2: 6.294390e-7,
+                                           3: 0}}}
             self.Nm = {'small': 3, 'large': 1}
             self.etam = {'small': 20, 'large': 36}
             self.Num_h2o = 46

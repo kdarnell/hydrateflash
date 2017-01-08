@@ -107,7 +107,7 @@ class Component(object):
             self.Pc = 220.483
             self.Vc = 0.0559
             self.MW = 18.015
-            self.diam = np.nan
+            self.diam = 0.0
             self.N_carb = 0
             self.g_io = -228700
             self.h_io = -242000
@@ -138,7 +138,7 @@ class Component(object):
                            's2': {'kappa': 0.0,
                                   'rep': {'small': 0.0,
                                           'large': 0.0}},
-                           'kih': {'a': np.nans,
+                           'kih': {'a': np.nan,
                                    'sig': np.nan,
                                    'epsk': np.nan}}
             self.ideal = {'Hs1': {'a1': np.nan,
