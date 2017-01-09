@@ -85,10 +85,10 @@ class HydrateEos(object):
         )/self.Hs.Num_h2o
         return delta_mu
 
-    def fugacity_calc(self, compobjs, T, P, alt_fug):
+    def fugacity_calc(self, compobjs, T, P, x, alt_fug):
         pass
 
-    def calc(self, compobjs, T, P, alt_fug):
+    def calc(self, compobjs, T, P, x, alt_fug):
         # Raise flag if components change.
         if compobjs != self.compobjs:
             print('Warning: Action not supported.' +
@@ -100,7 +100,7 @@ class HydrateEos(object):
             if self.T != T or self.P != P:
                 self.make_constant_mats(compobjs, T, P)
 
-        fug = self.fugacity_calc(compobjs, T, P, alt_fug)
+        fug = self.fugacity_calc(compobjs, T, P, x, alt_fug)
         return fug
 
 
@@ -153,7 +153,12 @@ class HvdwpmEos(HydrateEos):
                - 12*T*T_0*self.cp['a0']*np.log(T_0))/(12*R*T*T_0)
             + (self.vol_int(T, P, self.a0_cubed, self.kappa0)
                - self.vol_int(T, P_0, self.a0_cubed, self.kappa0))*1e-1/(R*T)
-        )     
+        )
+            
+        self.PT_factor = np.exp(self.Hs.alf[1]/3*(T-T_0) 
+                                + self.Hs.alf[2]/3*(T-T_0)**2 
+                                + self.Hs.alf[3]/3*(T-T_0)**3 
+                                - self.kappa0/3*(P-P_0))
         return self
 
     def vol_int(self, T, P, v, kappa):
@@ -163,9 +168,8 @@ class HvdwpmEos(HydrateEos):
         )/(-kappa)
         return v_int
         
-    # This doesn't have an intuitive name or physical meaning. 
-    # TODO: Come up with a better name
-    def unknown_func(self):
+    # Distortion of cage from occupancy
+    def distortion_func(self):
         small_const = (
             (1 + self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small
             / (1 + (self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small)
@@ -185,6 +189,8 @@ class HvdwpmEos(HydrateEos):
 
     # TODO: Determine when and where 'linear' vs. 'volumetric' kappas
     # are being used/provided.
+    # TODO: Additionally, determine which kappa should be used in which 
+    # places...the hydrate structure or the guest specific one??
     def kappa_func(self):
         if self.Nc>2:
             kappa = 3.0*np.sum(self.kappa_vec*self.Y_large)
@@ -207,7 +213,7 @@ class HvdwpmEos(HydrateEos):
 
 
     def convert_a_param(self):
-        self.unknown_func()
+        self.distortion_func()
         self.a_new = (self.Hs.a0_ast
              + (self.Hs.Nm['small']
                 * np.sum(self.repulsive_small*self.rep_sm_vec))
@@ -245,7 +251,7 @@ class HvdwpmEos(HydrateEos):
         return output
 
     def compute_integral_constants(self):
-        a_factor = self.a_new/self.Hs.a_norm
+        a_factor = (self.a_new/self.Hs.a_norm)*self.PT_factor
         self.R1_sm = self.Hs.R['sm'][1]*a_factor
         self.R2_sm = self.Hs.R['sm'][2]*a_factor
         self.R1_lg = self.Hs.R['lg'][1]*a_factor
@@ -254,8 +260,6 @@ class HvdwpmEos(HydrateEos):
         self.R4_lg = self.Hs.R['lg'][4]*a_factor
         return self
         
-        
-    # TODO: Work on testing this
     def langmuir_consts(self, compobjs, T, P):
         self.compute_integral_constants()
         C_small = np.zeros(self.Nc)
@@ -322,13 +326,12 @@ class HvdwpmEos(HydrateEos):
                                     - C_large[ii])/C_large_new[ii])
             C_small = C_small_new
             C_large = C_large_new
-            print(error, C_small_new, C_large_new)
         return self
 
 
     def fugacity_calc(self, compobjs, T, P, x, alt_fug):
+        alt_fug[self.h2oind] = 0.0
         self.alt_fug_vec = alt_fug
-        # It may be wise to insert a while loop to monitor changes C
         self.find_nonlinear_C(compobjs, T, P)
         delta_mu_RT = self.delta_mu_func(compobjs, T, P)
         v_H = self.volume_func(self.a_new)
