@@ -16,7 +16,7 @@ from scipy.integrate import quad
 # Constants
 R = 8.3144621  # universal gas constant
 T_0 = 298.15
-P_0 = 1
+P_0 = 1.0
 k = 1.3806488e-23
 
 
@@ -59,7 +59,6 @@ class HydrateEos(object):
         self.T = T
         self.P = P
         self.gw0_RT = compobjs[self.h2oind].gibbs_ideal(T, P)
-
         # Add additional stuff for specific EOS's here
         return self
 
@@ -67,7 +66,6 @@ class HydrateEos(object):
         # Each child EOS will have a different way of calculating this.
         C_small = np.zeros(self.Nc)
         C_large = np.zeros(self.Nc)
-
         return C_small, C_large
 
     def calc_langmuir(self, C):
@@ -80,21 +78,17 @@ class HydrateEos(object):
                 Y[ii] = 0
         return Y
 
-    def delta_mu_func(self, compobjs, T, P, x):
-        C_small, C_large = self.langmuir_consts(compobjs, T, P)
-        self.Y_small = self.calc_langmuir(C_small)
-        self.Y_large = self.calc_langmuir(C_large)
-
+    def delta_mu_func(self, compobjs, T, P):
         delta_mu = (
             self.Hs.Nm['small']*np.log(1-np.sum(self.Y_small))
             + self.Hs.Nm['large']*np.log(1-np.sum(self.Y_large))
         )/self.Hs.Num_h2o
         return delta_mu
 
-    def fugacity_calc(self, compobjs, T, P, x, alt_fug):
+    def fugacity_calc(self, compobjs, T, P, alt_fug):
         pass
 
-    def calc(self, compobjs, T, P, x, alt_fug):
+    def calc(self, compobjs, T, P, alt_fug):
         # Raise flag if components change.
         if compobjs != self.compobjs:
             print('Warning: Action not supported.' +
@@ -106,9 +100,7 @@ class HydrateEos(object):
             if self.T != T or self.P != P:
                 self.make_constant_mats(compobjs, T, P)
 
-
-        self.delta_mu_func(compobjs, T, P, x)
-        fug = self.fugacity_calc(compobjs, T, P, x, alt_fug)
+        fug = self.fugacity_calc(compobjs, T, P, alt_fug)
         return fug
 
 
@@ -129,10 +121,9 @@ class HvdwpmEos(HydrateEos):
         self.rep_sm_vec = np.zeros(self.Nc)
         self.rep_lg_vec = np.zeros(self.Nc)
         self.D_vec = np.zeros(self.Nc)
+        self.a_new = self.Hs.a_norm
 
         self.make_constant_mats(compobjs, T, P)
-
-
         for ii, comp in enumerate(compobjs):
             self.kappa_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['kappa']
             self.rep_sm_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['rep']['small']
@@ -144,7 +135,6 @@ class HvdwpmEos(HydrateEos):
             v = 6.0221413e23/self.Hs.Num_h2o/1e24*(a_param)**3
         else:
             v = self.Hs.v0
-
         return v
 
     def make_constant_mats(self, compobjs, T, P):
@@ -152,18 +142,18 @@ class HvdwpmEos(HydrateEos):
         super().make_constant_mats(compobjs, T, P)
 
         self.gwbeta_RT = (
-            (self.Hs.gw_0beta/(R*T_0) - (12*T*self.Hs.hw_0beta
-             - 12*T_0*self.Hs.hw_0beta + 12*T_0**2*self.cp['a0']
-             + 6*T_0**3*self.cp['a1'] + 4*T_0**4*self.cp['a2']
-             + 3*T_0**5*self.cp['a3'] - 12*T*T_0*self.cp['a0']
-             - 12*T*T_0**2*self.cp['a1'] + 6*T**2*T_0*self.cp['a1']
-             - 6*T*T_0**3*self.cp['a2'] + 2*T**3*T_0*self.cp['a2']
-             - 4*T*T_0**4*self.cp['a3'] + T**4*T_0*self.cp['a3']
-             + 12*T*T_0*self.cp['a0']*np.log(T)
-             - 12*T*T_0*self.cp['a0']*np.log(T_0)))/(12*R*T*T_0)
-            + (self.vol_int(P,self.a0_cubed,self.kappa0,T)
-               - self.vol_int(P_0,self.a0_cubed,self.kappa0,T))*1e-1/(R*T)
-        )
+            self.Hs.gw_0beta/(R*T_0) 
+            - (12*T*self.Hs.hw_0beta - 12*T_0*self.Hs.hw_0beta 
+               + 12*T_0**2*self.cp['a0'] + 6*T_0**3*self.cp['a1'] 
+               + 4*T_0**4*self.cp['a2'] + 3*T_0**5*self.cp['a3'] 
+               - 12*T*T_0*self.cp['a0'] - 12*T*T_0**2*self.cp['a1'] 
+               + 6*T**2*T_0*self.cp['a1'] - 6*T*T_0**3*self.cp['a2'] 
+               + 2*T**3*T_0*self.cp['a2'] - 4*T*T_0**4*self.cp['a3'] 
+               + T**4*T_0*self.cp['a3'] + 12*T*T_0*self.cp['a0']*np.log(T)
+               - 12*T*T_0*self.cp['a0']*np.log(T_0))/(12*R*T*T_0)
+            + (self.vol_int(T, P, self.a0_cubed, self.kappa0)
+               - self.vol_int(T, P_0, self.a0_cubed, self.kappa0))*1e-1/(R*T)
+        )     
         return self
 
     def vol_int(self, T, P, v, kappa):
@@ -172,33 +162,35 @@ class HvdwpmEos(HydrateEos):
                      + self.Hs.alf[3]*(T - T_0)**3 - kappa*(P - P_0))
         )/(-kappa)
         return v_int
-
+        
+    # This doesn't have an intuitive name or physical meaning. 
+    # TODO: Come up with a better name
     def unknown_func(self):
         small_const = (
             (1 + self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small
             / (1 + (self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small)
         )
-
         if self.Nc>2:
-            self.repulsive_small = np.sum(small_const)
-        else:
             self.repulsive_small = (small_const*np.exp(
                 self.D_vec - np.sum(self.Y_small*self.D_vec)
             ))
-
+        else:
+            self.repulsive_small = small_const
+            
         self.repulsive_large = (
             (1 + self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large
             / (1 + (self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large)
         )
-
         return self
 
+    # TODO: Determine when and where 'linear' vs. 'volumetric' kappas
+    # are being used/provided.
     def kappa_func(self):
         if self.Nc>2:
-            kappa = np.sum(self.kappa_vec)
+            kappa = 3.0*np.sum(self.kappa_vec*self.Y_large)
         else:
-            kappa = np.sum(self.kappa_vec*self.Y_large)
-
+            kappa = 3.0*np.sum(self.kappa_vec)
+            
         return kappa
 
     def activity_func(self, T, P, v_H_0):
@@ -206,24 +198,22 @@ class HvdwpmEos(HydrateEos):
         activity = (
             (v_H_0 - self.a0_cubed)/R*(self.Hs.a_fit/T_0
                                        + self.Hs.b_fit*(1/T - 1/T_0))
-            + ((self.vol_int(P,v_H_0,kappa_wtavg,T)
-                - self.vol_int(P,self.a0_cubed,self.kappa0,T))
-              - (self.vol_int(P_0,v_H_0,kappa_wtavg,T)
-                 - self.vol_int(P_0,self.a0_cubed,self.kappa0,T)))*1e-1/(R*T)
+            + ((self.vol_int(T, P, v_H_0, kappa_wtavg)
+                - self.vol_int(T, P, self.a0_cubed, self.kappa0))
+              - (self.vol_int(T, P_0, v_H_0, kappa_wtavg)
+                 - self.vol_int(T, P_0, self.a0_cubed, self.kappa0)))*1e-1/(R*T)
         )
-
         return activity
 
 
     def convert_a_param(self):
         self.unknown_func()
-        v = (self.Hs.a0_ast
+        self.a_new = (self.Hs.a0_ast
              + (self.Hs.Nm['small']
                 * np.sum(self.repulsive_small*self.rep_sm_vec))
              + (self.Hs.Nm['large']
-                *np.sum(self.repulsive_large*self.rep_lg_vec))
-             )
-        return v
+                *np.sum(self.repulsive_large*self.rep_lg_vec)))
+        return self
 
     def delta_func(self, N, Rn, aj, r):
         delta = ((1.0 - r/Rn - aj/Rn)**(-N) - (1.0 + r/Rn - aj/Rn)**(-N))/N
@@ -240,21 +230,22 @@ class HvdwpmEos(HydrateEos):
         return w
 
     def integrand_sm(self, r, R1, R2, z1, z2, eps_k, sigma, aj, T):
-        output = np.exp((-1.0/T)*r**2
-                        * (self.w_func(z1, eps_k, r, R1, sigma, aj)
-                           + self.w_func(z2, eps_k, r, R2, sigma, aj)))
+        output = r**2*np.exp((-1.0/T)
+                             * (self.w_func(z1, eps_k, r, R1, sigma, aj)
+                             + self.w_func(z2, eps_k, r, R2, sigma, aj)))
         return output
 
-    def integrand_lg(self, r, R1, R2, z1, z2, eps_k, sigma, aj, T):
-        output = np.exp((-1.0/T)*r**2
-                        * (self.w_func(z1, eps_k, r, R1, sigma, aj)
-                           + self.w_func(z2, eps_k, r, R2, sigma, aj)
-                           + self.w_func(z3, eps_k, r, R3, sigma, aj)
-                           + self.w_func(z4, eps_k, r, R4, sigma, aj)))
+    def integrand_lg(self, r, R1, R2, R3, R4, z1, z2, z3, z4, 
+                     eps_k, sigma, aj, T):
+        output = r**2*np.exp((-1.0/T)
+                             * (self.w_func(z1, eps_k, r, R1, sigma, aj)
+                             + self.w_func(z2, eps_k, r, R2, sigma, aj)
+                             + self.w_func(z3, eps_k, r, R3, sigma, aj)
+                             + self.w_func(z4, eps_k, r, R4, sigma, aj)))
         return output
 
-    def compute_integral_constants(self, a_new):
-        a_factor = a_new/self.Hs.a_norm
+    def compute_integral_constants(self):
+        a_factor = self.a_new/self.Hs.a_norm
         self.R1_sm = self.Hs.R['sm'][1]*a_factor
         self.R2_sm = self.Hs.R['sm'][2]*a_factor
         self.R1_lg = self.Hs.R['lg'][1]*a_factor
@@ -265,59 +256,85 @@ class HvdwpmEos(HydrateEos):
         
         
     # TODO: Work on testing this
-    def langmuir_consts(self, compobjs, T, P, a_new):
-        self.compute_integral_constants(a_new)
+    def langmuir_consts(self, compobjs, T, P):
+        self.compute_integral_constants()
         C_small = np.zeros(self.Nc)
         C_large = np.zeros(self.Nc)
+        C_const = 1e-10**3*4*np.pi/(k*T)*1e5
         for ii, comp in enumerate(compobjs):
             if comp.compname != 'h2o':
-                C_small[ii] = (1e-10**3*4*np.pi/(k*T)*(
-                    quad(self.integrand_sm,
-                         0,
-                         self.R1_sm - comp.HvdWPM['kih']['a'],
-                         args=(self.R1_sm,
-                               self.R2_sm,
-                               self.Hs.z['sm'][1],
-                               self.Hs.z['sm'][2],
-                               comp.HvdWPM['kih']['epsk'],
-                               comp.HvdWPM['kih']['sig'],
-                               comp.HvdWPM['kih']['a'],
-                               T,))
-                ))
-
-                C_large[ii] = (1e-10**3*4*np.pi/(k*T)*(
-                    quad(self.integrand_lg,
-                         0,
-                         self.R2_lg
-                         - comp.HvdWPM ['kih']['a'],
-                         args=(self.R1_lg,
-                               self.R2_lg,
-                               self.R3_lg,
-                               self.R4_lg,
-                               self.Hs.z['lg'][1],
-                               self.Hs.z['lg'][2],
-                               self.Hs.z['lg'][3],
-                               self.Hs.z['lg'][4],
-                               comp.HvdWPM['kih']['epsk'],
-                               comp.HvdWPM['kih']['sig'],
-                               comp.HvdWPM['kih']['a'],
-                               T,))
-                ))
+                
+                small_int = quad(self.integrand_sm,
+                                 0,
+                                 self.R1_sm - comp.HvdWPM['kih']['a'],
+                                 args=(self.R1_sm,
+                                       self.R2_sm,
+                                       self.Hs.z['sm'][1],
+                                       self.Hs.z['sm'][2],
+                                       comp.HvdWPM['kih']['epsk'],
+                                       comp.HvdWPM['kih']['sig'],
+                                       comp.HvdWPM['kih']['a'],
+                                       T,))
+                large_int = quad(self.integrand_lg,
+                                 0,
+                                 self.R2_lg - comp.HvdWPM['kih']['a'],
+                                 args=(self.R1_lg,
+                                       self.R2_lg,
+                                       self.R3_lg,
+                                       self.R4_lg,
+                                       self.Hs.z['lg'][1],
+                                       self.Hs.z['lg'][2],
+                                       self.Hs.z['lg'][3],
+                                       self.Hs.z['lg'][4],
+                                       comp.HvdWPM['kih']['epsk'],
+                                       comp.HvdWPM['kih']['sig'],
+                                       comp.HvdWPM['kih']['a'],
+                                       T,))
+                C_small[ii] = C_const*small_int[0]
+                C_large[ii] = C_const*large_int[0]
             else:
                 C_small[ii] = 0
                 C_large[ii] = 0
 
         return C_small, C_large
+        
+        
+    def iterate_function(self, compobjs, T, P):
+        self.convert_a_param()
+        C_small, C_large = self.langmuir_consts(compobjs, T, P)
+        self.Y_small = self.calc_langmuir(C_small)
+        self.Y_large = self.calc_langmuir(C_large) 
+        return C_small, C_large
+        
+    def find_nonlinear_C(self, compobjs, T, P):
+        error = 1e6
+        TOL = 1e-3
+        C_small = np.zeros(self.Nc)
+        C_large = np.zeros(self.Nc)
+        while error>TOL:
+            C_small_new, C_large_new = self.iterate_function(compobjs, T, P)
+            error = 0.0
+            for ii, comp in enumerate(compobjs):
+                if comp.compname != 'h2o':
+                    error += (abs(C_small_new[ii] 
+                                  - C_small[ii])/C_small_new[ii] 
+                              + abs(C_large_new[ii] 
+                                    - C_large[ii])/C_large_new[ii])
+            C_small = C_small_new
+            C_large = C_large_new
+            print(error, C_small_new, C_large_new)
+        return self
 
 
     def fugacity_calc(self, compobjs, T, P, x, alt_fug):
         self.alt_fug_vec = alt_fug
         # It may be wise to insert a while loop to monitor changes C
-        delta_mu_RT = self.delta_mu_func(compobjs, T, P, x)
-        v_H = self.convert_a_param()
+        self.find_nonlinear_C(compobjs, T, P)
+        delta_mu_RT = self.delta_mu_func(compobjs, T, P)
+        v_H = self.volume_func(self.a_new)
         activity = self.activity_func(T, P, v_H)
         mu_H_RT = self.gwbeta_RT + activity + delta_mu_RT
-        fug = self.exp(mu_H_RT - self.gw_0_RT)
+        fug = np.exp(mu_H_RT - self.gw0_RT)
         return fug
 
 
