@@ -30,7 +30,16 @@ class HydrateEos(object):
             'Object for calculating fugacity of water in hydrate' +
             ' with a mixture of gases.'
         )
-        # Set up arrays and matrices for future calculation
+        # Set up arrays and matrices for future calculation 
+        self.compnames = [c.compname for c in compobjs]
+        try:
+            self.h2oind = [ii for ii, name in enumerate(self.compnames)
+                           if name == 'h2o'][0]
+        except IndexError: 
+            raise RuntimeError(
+                'Hydrate EOS requires water to be present!'
+                 + '\nPlease provide water in your component list.')
+            
         self.Nc = len(compobjs)
         self.compobjs = compobjs
         self.gwbeta_RT_cons = np.zeros(1)
@@ -39,9 +48,8 @@ class HydrateEos(object):
         self.activity = np.zeros(1)
         self.delta_mu_RT = np.zeros(1)
         self.gw0_RT = np.zeros(1)
-        self.compnames = [c.compname for c in compobjs]
-        self.h2oind = [ii for ii, name in enumerate(self.compnames)
-                       if name == 'h2o'][0]
+        
+            
         self.Hs = HydrateStructure(structure)
         self.alt_fug_vec = np.zeros(self.Nc)
         self.Y_small = np.zeros(self.Nc)
@@ -89,6 +97,9 @@ class HydrateEos(object):
         pass
 
     def calc(self, compobjs, T, P, x, eq_fug):
+        # x is a dummy variable in this EOS! Inserted here for parallism with
+        # other EOS'
+        
         # Raise flag if components change.
         if compobjs != self.compobjs:
             print('Warning: Action not supported.' +
@@ -439,6 +450,8 @@ class HvdwpmEos(HydrateEos):
         if (eq_fug == self.eq_fug).all():
             fug = self.fug
         else:
+            fug = np.zeros(self.Nc)
+            fug[1:] = eq_fug[1:]
             # This will produce the correct C's and Y's, where Y is a 
             # strong fucntion of 'eq_fug' and C is a weak function of 'eq_fug'
             self.find_hydrate_properties(compobjs, T, P, eq_fug)
@@ -451,7 +464,7 @@ class HvdwpmEos(HydrateEos):
             
             # Thus, this depends strongly on Y
             mu_H_RT = self.gwbeta_RT + activity + delta_mu_RT
-            fug = np.exp(mu_H_RT - self.gw0_RT)
+            fug[0] =np.exp(mu_H_RT - self.gw0_RT)
             self.fug = fug
             
         return fug

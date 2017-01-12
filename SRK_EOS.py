@@ -14,7 +14,7 @@ import numpy as np
 """
 R = 83.144621  # universal gas constant (compatible with bar)
 # Possible aliases for describing the particular phase requested.
-liquidalias = ('liquid', 'liq', 'l')
+liquidalias = ('liquidhc', 'liqhc', 'lhc')
 vaporalias = ('vapor', 'vap', 'v', 'gas', 'g')
 
 
@@ -91,6 +91,16 @@ class SrkEos(object):
 
     # Main calculation that will call "fugacity". Option to specify phase.
     def calc(self, compobjs, T, P, x, phase='general'):
+        if len(x) != len(compobjs):
+            if len(x) > len(compobjs):
+                raise RuntimeError('Length of mole fraction vector "x" '
+                                   + 'exceeds number of components!')
+            elif not x:
+                raise RuntimeError('Mole fraction vector "x" is empty!')
+            else:
+                raise RuntimeError('Mole fraction vector "x" contains less '
+                                   +'values than component length!')
+        
         # Raise flag if components change.
         if compobjs != self.compobjs:
             print('Warning: Action not supported.' +

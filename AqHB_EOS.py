@@ -66,6 +66,16 @@ class HegBromEos(object):
             'using a modified Helgeson equation of state with a ' +
             'Bromley activity model.'
         )
+        
+        self.compnames = [c.compname for c in compobjs]
+        try:
+            self.h2oind = [ii for ii, name in enumerate(self.compnames)
+                           if name == 'h2o'][0]
+        except IndexError: 
+            raise RuntimeError(
+                'Aqueous EOS requires water to be present!'
+                 + '\nPlease provide water in your component list.')
+            
 
         self.Nc = len(compobjs)
         self.g_io_vec = np.zeros(self.Nc)
@@ -75,9 +85,6 @@ class HegBromEos(object):
         self.mu_ik_RT_cons = np.zeros(self.Nc)
         self.compobjs = compobjs
 
-        self.compnames = [c.compname for c in compobjs]
-        self.h2oind = [ii for ii, name in enumerate(self.compnames)
-                       if name == 'h2o'][0]
 
         # Assuming pressure and temperature won't change, compute terms that
         # are not functions of compostion.
@@ -188,6 +195,15 @@ class HegBromEos(object):
 
     # Main calculation that will call "fugacity". Option to specify phase.
     def calc(self, compobjs, T, P, x):
+        if len(x) != len(compobjs):
+            if len(x) > len(compobjs):
+                raise RuntimeError('Length of mole fraction vector "x" '
+                                   + 'exceeds number of components!')
+            elif not x:
+                raise RuntimeError('Mole fraction vector "x" is empty!')
+            else:
+                raise RuntimeError('Mole fraction vector "x" contains less '
+                                   +'values than component length!')
         # Raise flag if components change.
         if compobjs != self.compobjs:
             print('Warning: Action not supported.' +

@@ -44,10 +44,10 @@ class Component(object):
         elif compstr.lower() in self.menu['n2']:
             self.compname = 'n2'
         else:
-            raise RuntimeError(compstr + ' is not a supported component!!'
-                               + '\nConsult "Component.menu" '
-                               + 'attribute for \nvalid components and '
-                               + 'associated call strings.')
+            raise ValueError(compstr + ' is not a supported component!!'
+                             + '\nConsult "Component.menu" '
+                             + 'attribute for \nvalid components and '
+                             + 'associated call strings.')
 
         """
         Set all relevant properties for each component.
