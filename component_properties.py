@@ -102,6 +102,7 @@ class Component(object):
             ideal_Hs2 -
                 'hydrate structure 2 factors for ideal case, units = ''
         """
+        
         if self.compname == 'h2o':
             self.Tc = 647.3
             self.Pc = 220.483
@@ -113,6 +114,7 @@ class Component(object):
             self.h_io = -242000
             self.g_io_ast = np.nan
             self.h_io_ast = np.nan
+            self.stdst_fug = 0.0334
             self.cp = {'a0': 3.8747*R,
                        'a1': 0.0231e-2*R,
                        'a2': 0.1269e-5*R,
@@ -183,6 +185,7 @@ class Component(object):
             self.h_io = -74900
             self.g_io_ast = -34451
             self.h_io_ast = -87906
+            self.stdst_fug = 0.9983
             self.cp = {'a0': 2.3902*R,
                        'a1': 0.6039e-2*R,
                        'a2': 0.1525e-5*R,
@@ -254,6 +257,7 @@ class Component(object):
             self.h_io = -84720
             self.g_io_ast = -17000
             self.h_io_ast = -103136
+            self.stdst_fug = 0.9925
             self.cp = {'a0': 0.8293*R,
                        'a1': 2.0752e-2*R,
                        'a2': -0.7699e-5*R,
@@ -325,6 +329,7 @@ class Component(object):
             self.h_io = -103900
             self.g_io_ast = -7550
             self.h_io_ast = -131000
+            self.stdst_fug = 0.9847
             self.cp = {'a0': -0.4861*R,
                        'a1': 3.6629e-2*R,
                        'a2': -1.8895e-5*R,
@@ -396,6 +401,7 @@ class Component(object):
             self.h_io = -393800
             self.g_io_ast = -385974
             self.h_io_ast = -413798
+            self.stdst_fug = 0.9951
             self.cp = {'a0': 2.6751*R,
                        'a1': 0.7188e-2*R,
                        'a2': -0.4208e-5*R,
@@ -467,6 +473,7 @@ class Component(object):
             self.h_io = 0.0
             self.g_io_ast = 18188
             self.h_io_ast = -10439
+            self.stdst_fug = 0.9999
             self.cp = {'a0': 3.4736*R,
                        'a1': -0.0189e-2*R,
                        'a2': 0.0971e-5*R,

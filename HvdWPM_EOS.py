@@ -122,7 +122,7 @@ class HvdwpmEos(HydrateEos):
           'a3': 63.5104e-9*R}
     eos_key = 'hvdwpm'
 
-    def __init__(self, compobjs, T, P, stdstate_fug, structure='s1'):
+    def __init__(self, compobjs, T, P, structure='s1'):
         # 'stdstate_fug' is the (partial?) fugacity at P_0, T_0
 
         # Inheret all prroperties from HydrateEos
@@ -137,8 +137,8 @@ class HvdwpmEos(HydrateEos):
         self.a_new = self.Hs.a_norm
         self.Y_small_0 = np.zeros(self.Nc)
         self.Y_large_0 = np.zeros(self.Nc)
-        self.stdstate_fug = stdstate_fug
         self.eq_fug = np.zeros(self.Nc)
+        self.stdstate_fug = np.zeros(self.Nc)
 
         # Retrieve information for components and populate within vectors
         for ii, comp in enumerate(compobjs):
@@ -146,6 +146,7 @@ class HvdwpmEos(HydrateEos):
             self.rep_sm_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['rep']['small']
             self.rep_lg_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['rep']['large']
             self.D_vec[ii] = comp.diam
+            self.stdstate_fug[ii] = comp.stdst_fug
 
         # Set up parameters that do not change with the system, which
         # in the case means the fugacity of other phases.
