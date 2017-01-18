@@ -144,6 +144,14 @@ class HegBromEos(object):
                + (a12*P + a22*P**2/2 + a32*P**3/3 + a42*P**4/4)*T**2
                + (a13*P + a23*P**2/2 + a33*P**3/3 + a43*P**4/4)*T**3)
         return v_w
+        
+
+    def purewatervol(self, P, T):
+        v_w = ((a10 + a20*P + a30*P**2 + a40*P**3)
+               + (a11 + a21*P + a31*P**2 + a41*P**3)*T
+               + (a12 + a22*P + a32*P**2 + a42*P**3)*T**2
+               + (a13 + a23*P + a33*P**2 + a43*P**3)*T**3)
+        return v_w
 
 
     def solutevol_integrated(self, comp, T):

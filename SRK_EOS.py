@@ -88,6 +88,13 @@ class SrkEos(object):
                         * np.log(1.0 + self.B/Z))
                )
         return fug
+        
+    def volume(self, Z):
+        v = Z*R*self.T/self.P
+        return v
+        
+    def enthalpy(self, Z):
+        
 
     # Main calculation that will call "fugacity". Option to specify phase.
     def calc(self, compobjs, T, P, x, phase='general'):
@@ -122,15 +129,17 @@ class SrkEos(object):
 
             if np.isreal(Z).all():
                 if phase.lower() in liquidalias:
-                    fug = self.fugacity(x, Z.min())
+                    self.Z = Z.min()
                 elif phase.lower() in vaporalias or phase.lower() == 'general':
-                    fug = self.fugacity(x, Z.max())
+                    self.Z = Z.max()
             elif np.isreal(Z).any():
                 # There should actually only be one real number if any
                 # imaginary roots exists, so the np.max() is redundant.
-                fug = self.fugacity(x, np.real(np.max(Z[np.isreal(Z)])))
+                self.Z = np.real(np.max(Z[np.isreal(Z)]))
             else:
                 fug = np.nan
                 print('Something is wrong.' +
                       '\nSolver returned imaginary numbers')
+                
+            fug = self.fugacity(x, self.Z)
         return fug

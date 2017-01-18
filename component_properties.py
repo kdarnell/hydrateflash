@@ -130,7 +130,7 @@ class Component(object):
                         'S2': -0.2018,
                         'kij': {'h2o': 0.0,
                                 'ch4': 0.4965,
-                                'co2': -0.07,
+                                'co2': -0.07,  # CSMGem says 0.2453
                                 'n2': 0.5063,
                                 'c2h6': 0.5975,
                                 'c3h8': 0.5612}}
@@ -201,10 +201,10 @@ class Component(object):
                         'S2': -0.012223,
                         'kij': {'h2o': 0.4965,
                                 'ch4': 0.0,
-                                'co2': 0.0936,
-                                'n2': 0.0291,
-                                'c2h6': 0.0,
-                                'c3h8': 0.0}}
+                                'co2': 0.0936,  # CSMGem says 0.097
+                                'n2': 0.0291,  # CSMGem says 0.04
+                                'c2h6': 0.0,  # CSMGem says 0.003
+                                'c3h8': 0.0}}  # CSMGem says 0.01008
             self.HvdWPM = {'s1': {'kappa': 1e-5,
                                   'rep': {'small': 0.017668,
                                           'large': 0.010316}},
@@ -272,9 +272,9 @@ class Component(object):
             self.SRK = {'omega': 0.0995,
                         'S2': -0.0124,
                         'kij': {'h2o': 0.5975,
-                                'ch4': 0.0,
+                                'ch4': 0.0,  # CSMGem says 0.003
                                 'co2': 0.132,
-                                'n2': 0.0082,
+                                'n2': 0.0082,  # CSMGem says 0.02
                                 'c2h6': 0.0,
                                 'c3h8': 0.0}}
             self.HvdWPM = {'s1': {'kappa': 1e-8,
@@ -343,10 +343,10 @@ class Component(object):
                          'omega_born': -211418}
             self.SRK = {'omega': 0.1523,
                         'S2': -0.0038,
-                        'kij': {'h2o': 0.5612,
-                                'ch4': 0.0,
+                        'kij': {'h2o': 0.5612,  # CSMGem says 0.5612
+                                'ch4': 0.0,  # CSMGem says 0.01008
                                 'co2': 0.13,
-                                'n2': 0.0865,
+                                'n2': 0.0865,  # CSMGem says 0.086
                                 'c2h6': 0.0,
                                 'c3h8': 0.0}}
             self.HvdWPM = {'s1': {'kappa': 1e-7,
@@ -415,10 +415,10 @@ class Component(object):
                          'omega_born': -8368}
             self.SRK = {'omega': 0.2236,
                         'S2': -0.004474,
-                        'kij': {'h2o': -0.07,
-                                'ch4': 0.0936,
+                        'kij': {'h2o': -0.07,  # CSMGem says 0.2453
+                                'ch4': 0.0936,  # CSMGem says 0.097
                                 'co2': 0.0,
-                                'n2': -0.0462,
+                                'n2': -0.0462,  # CSMGem says -0.046
                                 'c2h6': 0.132,
                                 'c3h8': 0.13}}
             self.HvdWPM = {'s1': {'kappa': 1e-6,
@@ -488,11 +488,11 @@ class Component(object):
             self.SRK = {'omega': 0.0377,
                         'S2': -0.011016,
                         'kij': {'h2o': 0.5063,
-                                'ch4': 0.0291,
-                                'co2': -0.0462,
+                                'ch4': 0.0291,  # CSMGEm says 0.04
+                                'co2': -0.0462,  # CSMGem says -.046
                                 'n2': 0.0,
-                                'c2h6': 0.0082,
-                                'c3h8': 0.0862}}
+                                'c2h6': 0.0082,  # CSMGem says 0.02
+                                'c3h8': 0.0862}}  # CSMGem says 0.086
             self.HvdWPM = {'s1': {'kappa': 1.1e-5,
                                   'rep': {'small': 0.017377,
                                           'large': 0.0}},
