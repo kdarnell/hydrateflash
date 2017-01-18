@@ -153,8 +153,8 @@ class FlashController(object):
             self.eos = eos
 
         # Build list for fugacity calculations
-        fug_list = []
-        hyd_phases = []
+        fug_list = list()
+        hyd_phases = dict()
         for ii, phase in enumerate(self.phases):
             if phase in ('aqueous', 's1', 's2'):
                 if self.h2oexists:
@@ -163,7 +163,7 @@ class FlashController(object):
                         fug_list.append(aq_obj)
                         self.ref_phase = phase
                     else:
-                        hyd_phases.append((phase, ii))
+                        hyd_phases[phase] = ii
                         h_obj = h.HvdwpmEos(self.compobjs, self.T, self.P,
                                             structure=phase)
                         fug_list.append(h_obj)
@@ -174,17 +174,19 @@ class FlashController(object):
                 print('Not currently supported for an ice phase.')
                 self.phases.remove(phase)
                 if not hyd_phases:
-                    for hyd_phase in hyd_phases:
-                        hyd_phase[1] += -1
+                    for hyd_phase, hyd_ind in hyd_phases.items():
+                        hyd_ind += -1
             else:
                 hc_obj = hc.SrkEos(self.compobjs, self.T, self.P)
                 fug_list.append(hc_obj)
                 if self.ref_phase is None and phase == 'vapor':
                     self.ref_phase = 'vapor'
-                
+
         self.fug_list = fug_list
         self.hyd_phases = hyd_phases
-        
+        self.nonhyd_phases = [ii for ii in range(len(self.phases))
+                              if ii not in self.hyd_phases.values()]
+
     def set_feed(self, z):
         if len(z) != len(self.compobjs):
             raise ValueError('Feed fraction has different dimension than'
@@ -193,13 +195,59 @@ class FlashController(object):
             if z[self.h2oind] > 0.8:
                 self.ref_phase = 'aqueous'
         else:
-            # This is true for now. In practice, this sometims needs to be 
+            # This is true for now. In practice, this sometims needs to be
             # lhc, but we will handle that within a different method.
             self.ref_phase = 'vapor'
-        
-        self.feed = z 
 
-            
+        self.feed = z
+
+    # TODO Check the next three functions against Matlab output
+    def calc_x(self, z, alpha, theta, K):
+        # z, alpha, and theta are vectors.
+        # z is length Nc, alpha and theta are length Np
+        # K is matrix of size Nc x Np
+        x_mat = np.zeros([len(self.compobjs), len(self.phases)])
+        x_numerator = np.zeros([len(self.compobjs), len(self.phases)])
+
+
+        for ii, comp in enumerate(self.compobjs):
+            x_denominator = 1.0
+            for kk, phase in enumerate(self.phases):
+                if phase not in ('s1', 's2'):
+                    x_numerator[ii, kk] = z[ii]*K[ii, kk]*np.exp(theta[kk])
+
+                x_denominator += alpha[kk]*(K[ii, kk]*theta[kk] - 1.0)
+            x_mat[ii, self.nonhyd_phases] = (
+                x_numerator[ii, self.nonhyd_phases]/x_denominator
+            )
+
+            for hyd_phase, ind in self.hyd_phases.items():
+                x_mat[:, ind] = self.fug_list[ind].hyd_comp()
+
+        return x_mat
+
+    def Objective_func(self, z, alpha, theta, K):
+        # z, alpha, and theta are vectors.
+        # z is length Nc, alpha and theta are length Np
+        # K is matrix of size Nc x Np
+        E_mat = np.zeros([len(self.compobjs), len(self.phases)])
+        E_numerator = np.zeros([len(self.compobjs), len(self.phases)])
+
+        for ii, comp in enumerate(self.compobjs):
+            E_denominator = 1.0
+            for kk, phase in enumerate(self.phases):
+                E_numerator[ii, kk] = z[ii]*(K[ii, kk]*np.exp(theta[kk]) - 1.0)
+                E_denominator += alpha[kk]*(K[ii, kk]*theta[kk] - 1.0)
+            E_mat[ii, self.nonhyd_phases] = (
+                E_numerator[ii, self.nonhyd_phases]/E_denominator
+            )
+        Cost = np.sum(E_mat, axis=1)
+        return Cost
+        
+    def Stability_func(self, alpha, theta):
+        Y = alpha*theta/(alpha + theta)
+        return Y 
+
     def calc_K(self, T, P, x_mat):
         fug_mat = self.calc_fugacity(T, P, x_mat)
         K_mat = np.ones_like(x_mat)
@@ -207,26 +255,24 @@ class FlashController(object):
             if phase != self.ref_phase:
                 K_mat[:, ii] = (self.ref_fug/fug_mat[:, ii]
                                 * x_mat[:, ii]/self.ref_comp)
-                
         return K_mat
-            
-    
+
     # x_mat will be a matrix of the compositions in each phase.
     # It should be Nc x Np
     def calc_fugacity(self, T, P, x_mat):
         fug_out = np.zeros_like(x_mat)
         for ii, phase in enumerate(self.phases):
             if phase == 'aqueous':
-                fug_out[:,ii] = self.fug_list[ii].calc(self.compobjs, 
-                                                       T, 
+                fug_out[:,ii] = self.fug_list[ii].calc(self.compobjs,
+                                                       T,
                                                        P,
                                                        x_mat[:,ii])
 
             elif phase == 'vapor' or phase == 'lhc':
-                fug_out[:,ii] = self.fug_list[ii].calc(self.compobjs, 
-                                                       T, 
+                fug_out[:,ii] = self.fug_list[ii].calc(self.compobjs,
+                                                       T,
                                                        P,
-                                                       x_mat[:, ii], 
+                                                       x_mat[:, ii],
                                                        phase=phase)
             # Update the reference phase fugacity, which cannot be hydrate.
             if self.ref_phase == phase:
@@ -234,14 +280,12 @@ class FlashController(object):
                     self.ref_comp = x_mat[:,ii]
 
         # Do this separetly because we need the reference phase fugacity.
-        for hyd_phase in self.hyd_phases:
-            phase = hyd_phase[0]
-            ind = hyd_phase[1]
-            fug_out[:,ind] = self.fug_list[ind].calc(self.compobjs, 
-                                                     T, 
-                                                     P,
-                                                     [], 
-                                                     self.ref_fug)
+        for hyd_phase, ind in self.hyd_phases.items():
+            fug_out[:, ind] = self.fug_list[ind].calc(self.compobjs,
+                                                      T,
+                                                      P,
+                                                      [],
+                                                      self.ref_fug)
         return fug_out
 
 

@@ -470,6 +470,14 @@ class HvdwpmEos(HydrateEos):
             
         return fug
 
+    # Calcualte hydrate composition
+    def hyd_comp(self):
+        x_tmp = (self.Hs.Nm['small']*self.Y_small
+                 + self.Hs.Nm['large']*self.Y_large)/self.Hs.Num_h2o
+        x = x_tmp/(1.0 + np.sum(x_tmp))
+        x[self.h2oind] = 1.0 - np.sum(x)
+        
+        return x
 
 
 # Properties of each hydrate structure necessary for further calculation.
