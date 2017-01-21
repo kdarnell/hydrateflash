@@ -86,6 +86,7 @@ class FlashController(object):
             if comp.compname == 'h2o':
                 self.h2oexists = True
                 self.h2oind = ii
+        self.Nc = len(self.compobjs)
 
         # Check that phases exceed 1
         if type(phases) is str or len(phases) == 1:
@@ -186,6 +187,7 @@ class FlashController(object):
         self.hyd_phases = hyd_phases
         self.nonhyd_phases = [ii for ii in range(len(self.phases))
                               if ii not in self.hyd_phases.values()]
+        self.Np = len(self.phases)
 
     def set_feed(self, z):
         if len(z) != len(self.compobjs):
@@ -230,19 +232,68 @@ class FlashController(object):
         # z, alpha, and theta are vectors.
         # z is length Nc, alpha and theta are length Np
         # K is matrix of size Nc x Np
-        E_mat = np.zeros([len(self.compobjs), len(self.phases)])
-        E_numerator = np.zeros([len(self.compobjs), len(self.phases)])
 
-        for ii, comp in enumerate(self.compobjs):
-            E_denominator = 1.0
-            for kk, phase in enumerate(self.phases):
-                E_numerator[ii, kk] = z[ii]*(K[ii, kk]*np.exp(theta[kk]) - 1.0)
-                E_denominator += alpha[kk]*(K[ii, kk]*theta[kk] - 1.0)
-            E_mat[ii, self.nonhyd_phases] = (
-                E_numerator[ii, self.nonhyd_phases]/E_denominator
-            )
-        Cost = np.sum(E_mat, axis=1)
+        # Making use of numpy's broadcasting capabilities to implicitly
+        # reshape and 'tile' matrices.
+        E_numerator = z[:, np.newaxis]*(K*np.exp(theta[np.newaxis, :]) - 1)
+        E_denomintor = 1 + np.sum(
+                alpha[np.newaxis, :]*(K*np.exp(theta[np.newaxis, :]) - 1), 
+                axis=1)
+        E_cost = np.sum(E_numerator/E_denomintor[:, np.newaxis], axis=0)
+        Y_cost = alpha*theta/(alpha + theta)
+        Cost = np.concatenate((E_cost, Y_cost))
         return Cost
+    
+    def Jacobian_Cost(self, z, alpha, theta, K):
+        # z, alpha, and theta are vectors.
+        # z is length Nc, alpha and theta are length Np
+        # K is matrix of size Nc x Np
+        
+        
+        # Making use of numpy's broadcasting capabilities to implicitly
+        # reshape and 'tile' matrices.
+        Stability_mat = (K*np.exp(theta[np.newaxis, :]) - 1.0)
+        J_alphaNumerator = (z[:, np.newaxis, np.newaxis]
+                     * Stability_mat[:, :, np.newaxis]
+                     * Stability_mat[:, np.newaxis, :])
+
+        J_thetaNumerator = (z[:, np.newaxis, np.newaxis]
+                     * Stability_mat[:, :, np.newaxis]
+                     * K[:, np.newaxis,:]
+                     * alpha[np.newaxis, np.newaxis, :]
+                     * np.exp(theta[np.newaxis, np.newaxis :]))
+        
+        Denomiator = (1.0 + (np.sum(alpha[np.newaxis, :]
+                             * Stability_mat, axis=1)))**2
+        
+        Jac_alphaCost = -np.sum(J_alphaNumerator
+                                / Denomiator[:, np.newaxis, np.newaxis], 
+                                axis = 0)
+        
+        Jac_thetaCost = -np.sum(J_thetaNumerator
+                                / Denomiator[:, np.newaxis, np.newaxis], 
+                                axis = 0)
+        
+        Diag_denom = 1.0 + np.sum((K*np.exp(theta[np.newaxis, :]) - 1.0)
+                                   * alpha[np.newaxis,:], axis=1)
+        Diag = np.sum(z[:, np.newaxis]*K*np.exp(theta[np.newaxis, :]) 
+                      / Diag_denom[:, np.newaxis], 
+                      axis=0)        
+        Jac_thetaCost += np.diag(Diag)
+
+        Jacobian_Cost = np.concatenate((Jac_alphaCost, Jac_thetaCost), axis=1)
+        
+        
+        Jac_alphaStability = (theta/(alpha + theta) 
+                              - alpha*theta/(alpha + theta)**2)
+        Jac_thetaStability = (alpha/(alpha + theta) 
+                              - alpha*theta/(alpha + theta)**2)
+        Jacobiaon_Stability = np.concatenate((np.diag(Jac_alphaStability),             
+                                              np.diag(Jac_thetaStability)),
+                                             axis=1)
+        Jacobian = np.concatenate((Jacobian_Cost, Jacobiaon_Stability), axis=0)
+        
+        return Jacobian
         
     def Stability_func(self, alpha, theta):
         Y = alpha*theta/(alpha + theta)

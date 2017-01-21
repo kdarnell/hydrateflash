@@ -93,7 +93,7 @@ class SrkEos(object):
         v = Z*R*self.T/self.P
         return v
         
-    def enthalpy(self, Z):
+#    def enthalpy(self, Z):
         
 
     # Main calculation that will call "fugacity". Option to specify phase.
