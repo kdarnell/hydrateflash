@@ -11,6 +11,8 @@ Starting the general flash handler for iteration and calling
 of EOS objects. I will prepare skeleton here first (01/11/17).
 """
 import numpy as np
+from scipy.optimize import minimize, newton_krylov, fsolve
+
 # Not sure if I want these classes in this file
 import component_properties as cp
 import AqHB_EOS as aq
@@ -228,7 +230,7 @@ class FlashController(object):
 
         return x_mat
 
-    def Objective_func(self, z, alpha, theta, K):
+    def Objective(self, z, alpha, theta, K):
         # z, alpha, and theta are vectors.
         # z is length Nc, alpha and theta are length Np
         # K is matrix of size Nc x Np
@@ -244,7 +246,7 @@ class FlashController(object):
         Cost = np.concatenate((E_cost, Y_cost))
         return Cost
     
-    def Jacobian_Cost(self, z, alpha, theta, K):
+    def Jacobian(self, z, alpha, theta, K):
         # z, alpha, and theta are vectors.
         # z is length Nc, alpha and theta are length Np
         # K is matrix of size Nc x Np
@@ -342,7 +344,53 @@ class FlashController(object):
 
 
 
+    # TODO: This entire method is not working. I'm not sure how to implement 
+    # scipy's algorithms to solve this appropriatley. It is probably a good
+    # idea to use my original algorithm or at the least compare the results
+    # because it may be apppropriately solving things, but not applying the 
+    # constraints correctly.
+    def find_alphatheta_min(self, z, alpha0, theta0, K):
+        # z is always constant
+        # K will remain constant
+        # alpha0 is the starting alpha
+        # theta0 is the starting theta
+        # Constaints (1): sum(alpha[:]) - 1 =  0, (2): 0 <= alpha[i] <= 1
+        # xor(alpha[i] == 0, theta[i] == 0)
+        # Objective funciton: self.Objective
+        # Jacobian function: self.Jacobian
+        # We will convert x = np.concatenate(alpha, theta).
+        # Thus, alpha is x[0:self.Np] and theta is x[self.Np:]
+        
+        Objective = lambda x: self.Objective(z, x[0:self.Np], x[self.Np:], K)
+        Jacobian = lambda x: self.Jacobian(z, x[0:self.Np], x[self.Np:], K)
+        
+        constraints = list()
+        # I actually think this will be taken care of by enforcing bounds.
+#        # Enforce alpha (x[0:self.Np])
+#        for ii in range(self.Np):
+#            constraints.append({'type': 'ineq', 'fun': lambda x: x[ii]})
+#            constraints.append({'type': 'ineq', 'fun': lambda x: 1 - x[ii]})
+            
+        constraints.append({'type': 'eq', 
+                            'fun': lambda x: 1 - sum(x[0:self.Np])})        
+        constraints = tuple(constraints)
+        
+        alpha_bnds = [(0,1) for ii in range(self.Np)]
+        theta_bnds = [(0,None) for ii in range(self.Np)]
+        bnds = tuple(alpha_bnds) + tuple(theta_bnds)
+        
+        initial_guess = np.concatenate((alpha0, theta0))
+        print('Obj = ', Objective(initial_guess))
+        print('Jac = ', Jacobian(initial_guess))
 
+
+#        result = minimize(Objective, initial_guess,
+#                          method='TNC', 
+#                          bounds=bnds, constraints=constraints)
+
+#        result = newton_krylov(Objective, initial_guess, method='lgmres', verbose=1)
+        result = fsolve(Objective, initial_guess)
+        return result
 
 
 
