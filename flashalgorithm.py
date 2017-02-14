@@ -204,10 +204,10 @@ class FlashController(object):
             self.ref_phase = 'vapor'
 
         self.feed = z
-        
+
     def set_ref_index(self):
         self.ref_ind = [self.ref_phase == phase for phase in self.phases]
-        
+
 
     # TODO Check the next three functions against Matlab output
     def calc_x(self, z, alpha, theta, K):
@@ -243,19 +243,19 @@ class FlashController(object):
         # reshape and 'tile' matrices.
         E_numerator = z[:, np.newaxis]*(K*np.exp(theta[np.newaxis, :]) - 1)
         E_denomintor = 1 + np.sum(
-                alpha[np.newaxis, :]*(K*np.exp(theta[np.newaxis, :]) - 1), 
+                alpha[np.newaxis, :]*(K*np.exp(theta[np.newaxis, :]) - 1),
                 axis=1)
         E_cost = np.sum(E_numerator/E_denomintor[:, np.newaxis], axis=0)
         Y_cost = alpha*theta/(alpha + theta)
         Cost = np.concatenate((E_cost, Y_cost))
         return Cost
-    
+
     def Jacobian(self, z, alpha, theta, K):
         # z, alpha, and theta are vectors.
         # z is length Nc, alpha and theta are length Np
         # K is matrix of size Nc x Np
-        
-        
+
+
         # Making use of numpy's broadcasting capabilities to implicitly
         # reshape and 'tile' matrices.
         Stability_mat = (K*np.exp(theta[np.newaxis, :]) - 1.0)
@@ -268,42 +268,42 @@ class FlashController(object):
                      * K[:, np.newaxis,:]
                      * alpha[np.newaxis, np.newaxis, :]
                      * np.exp(theta[np.newaxis, np.newaxis :]))
-        
+
         Denomiator = (1.0 + (np.sum(alpha[np.newaxis, :]
                              * Stability_mat, axis=1)))**2
-        
+
         Jac_alphaCost = -np.sum(J_alphaNumerator
-                                / Denomiator[:, np.newaxis, np.newaxis], 
+                                / Denomiator[:, np.newaxis, np.newaxis],
                                 axis = 0)
-        
+
         Jac_thetaCost = -np.sum(J_thetaNumerator
-                                / Denomiator[:, np.newaxis, np.newaxis], 
+                                / Denomiator[:, np.newaxis, np.newaxis],
                                 axis = 0)
-        
+
         Diag_denom = 1.0 + np.sum((K*np.exp(theta[np.newaxis, :]) - 1.0)
                                    * alpha[np.newaxis,:], axis=1)
-        Diag = np.sum(z[:, np.newaxis]*K*np.exp(theta[np.newaxis, :]) 
-                      / Diag_denom[:, np.newaxis], 
-                      axis=0)        
+        Diag = np.sum(z[:, np.newaxis]*K*np.exp(theta[np.newaxis, :])
+                      / Diag_denom[:, np.newaxis],
+                      axis=0)
         Jac_thetaCost += np.diag(Diag)
 
         Jacobian_Cost = np.concatenate((Jac_alphaCost, Jac_thetaCost), axis=1)
-        
-        
-        Jac_alphaStability = (theta/(alpha + theta) 
+
+
+        Jac_alphaStability = (theta/(alpha + theta)
                               - alpha*theta/(alpha + theta)**2)
-        Jac_thetaStability = (alpha/(alpha + theta) 
+        Jac_thetaStability = (alpha/(alpha + theta)
                               - alpha*theta/(alpha + theta)**2)
-        Jacobiaon_Stability = np.concatenate((np.diag(Jac_alphaStability),             
+        Jacobiaon_Stability = np.concatenate((np.diag(Jac_alphaStability),
                                               np.diag(Jac_thetaStability)),
                                              axis=1)
         Jacobian = np.concatenate((Jacobian_Cost, Jacobiaon_Stability), axis=0)
-        
+
         return Jacobian
-        
+
     def Stability_func(self, alpha, theta):
         Y = alpha*theta/(alpha + theta)
-        return Y 
+        return Y
 
     def calc_K(self, T, P, x_mat):
         fug_mat = self.calc_fugacity(T, P, x_mat)
@@ -348,104 +348,109 @@ class FlashController(object):
 
 
 
-    # TODO: This entire method is not working. I'm not sure how to implement 
-    # scipy's algorithms to solve this appropriatley. It is probably a good
-    # idea to use my original algorithm or at the least compare the results
-    # because it may be apppropriately solving things, but not applying the 
-    # constraints correctly.
-#    def find_alphatheta_min(self, z, alpha0, theta0, K):
-#        # z is always constant
-#        # K will remain constant
-#        # alpha0 is the starting alpha
-#        # theta0 is the starting theta
-#        # Constaints (1): sum(alpha[:]) - 1 =  0, (2): 0 <= alpha[i] <= 1
-#        # xor(alpha[i] == 0, theta[i] == 0)
-#        # Objective funciton: self.Objective
-#        # Jacobian function: self.Jacobian
-#        # We will convert x = np.concatenate(alpha, theta).
-#        # Thus, alpha is x[0:self.Np] and theta is x[self.Np:]
-#        beta = 0.01
-#        
-#        Objective = lambda x: np.abs(self.Objective(z, x[0:self.Np], x[self.Np:], K)) + beta*(1.0 - np.sum(x[0:]))
-##        Jacobian = lambda x: self.Jacobian(z, x[0:self.Np], x[self.Np:], K)
-#        
-#        initial_guess = np.concatenate((alpha0, theta0))
-#        result = fsolve(Objective, initial_guess)
-#        return result
+    def find_alphatheta_min(self, z, alpha0, theta0, K, print_iter_info=False):
 
-
-    def find_alphatheta_min(self, z, alpha0, theta0, K):
-        
-        Objective = lambda x: self.Objective(z, x[0:self.Np], x[self.Np:], K) 
+        # Use pre-defined Objective and Jacobian functions, but adjust for
+        #  single input.
+        Objective = lambda x: self.Objective(z, x[0:self.Np], x[self.Np:], K)
         Jacobian = lambda x: self.Jacobian(z, x[0:self.Np], x[self.Np:], K)
-        
-        
+
+        # Set reference index if the controller hasn't already assigned it.
         if ~hasattr(self, 'ref_ind'):
             self.ref_ind = 0
-            
+
+        # Set iteration parameters
         nres = 1e6
         ndx = 1e6
         TOL = 1e-6
         kmax = 500
         k = 0
-        
-        
+        dx = np.zeros([2*self.Np])
+
+        # Mask arrays to avoid the reference phase.
         alf_mask = np.ones([2*self.Np], dtype=bool)
         theta_mask = np.ones([2*self.Np], dtype=bool)
         arr_mask = np.ones([2*self.Np], dtype=bool)
-        mat_mask = np.ones([2*self.Np,2*self.Np], dtype=bool)
+        mat_mask = np.ones([2*self.Np, 2*self.Np], dtype=bool)
 
-        
+        # Populate masked arrays for 4 different types.
+        # Mask reference phase in alpha array
         alf_mask[self.ref_ind] = 0
         alf_mask[self.Np:] = 0
+        # Mask reference phase in theta array
         theta_mask[0:self.Np] = 0
         theta_mask[self.ref_ind + self.Np] = 0
+        # Mask reference phase in x array
         arr_mask[self.ref_ind] = 0
         arr_mask[self.ref_ind + self.Np] = 0
+        # Mask reference phase rows and columns in Jacobian matrix
         mat_mask[self.ref_ind, :] = 0
         mat_mask[self.ref_ind + self.Np, :] = 0
         mat_mask[:, self.ref_ind] = 0
         mat_mask[:, self.ref_ind + self.Np] = 0
 
+        # Define 'x' as the concatenation of alpha and theta
         x = np.concatenate((alpha0, theta0))
-        
+
+        # Iterate until converged
         while nres > TOL and ndx > TOL and k < kmax:
-            dx = np.zeros([2*self.Np])
+
+            # Solve for change in variables using non-reference phases
             res = Objective(x)
             J = Jacobian(x)
-            dx_tmp = -np.matmul(np.linalg.pinv(
-                                J[mat_mask].reshape([2*(self.Np - 1), 
-                                                     2*(self.Np - 1)])), 
-                            res[arr_mask])
-            dx[arr_mask] = dx_tmp
-            nres = np.linalg.norm(res)
-            
-            x[alf_mask] = (x[alf_mask] 
-                           + np.sign(dx[alf_mask]) 
-                           * np.minimum(np.maximum(1e-2,x[alf_mask]*0.5),
-                                        np.abs(dx[alf_mask])))
-            x[alf_mask] = np.minimum(1,np.maximum(0,x[alf_mask]))
-            x[self.ref_ind] = np.minimum(1,np.maximum(1e-3,1 - np.sum(x[alf_mask])))
+            J_mod = J[mat_mask].reshape([2*(self.Np - 1), 2*(self.Np - 1)])
+            res_mod = res[arr_mask]
+            dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
 
-            
-            x[theta_mask] += dx[theta_mask]
-            x[theta_mask] = np.maximum(0,x[theta_mask])
-            change_ind = (((x[0:self.Np] < 1e-10) & (x[self.Np:] == 0)) |
-                    ((x[0:self.Np] < 1e-10) & (x[self.Np:] == 0)) |
-                    ((x[0:self.Np] < 1e-10) & (x[self.Np:] < 1e-10)))
-            adjust_ind = np.append(change_ind, change_ind)
-            x[adjust_ind] = 1e-10 
-            x[self.Np + self.ref_ind] = 0
-            x[alf_mask] = x[alf_mask]*(x[theta_mask]<=1e-10)
-            x[theta_mask] = x[theta_mask]*(x[alf_mask]<=1e-10)
-            
-            
+            # Populate dx for non-reference phases
+            dx[arr_mask] = dx_tmp
+
+            # Determine error
+            nres = np.linalg.norm(res)
             ndx = np.linalg.norm(dx)
+
+            # Adjust alpha using a maximum change of 
+            # the larger of 0.5*alpha_i or 0.01.
+            x[alf_mask] = (x[alf_mask]
+                           + np.sign(dx[alf_mask])
+                             * np.minimum(np.maximum(1e-2,
+                                                     0.5*x[alf_mask]),
+                                          np.abs(dx[alf_mask])))
+
+            # Limit alpha to exist between 0 and 1 and adjust alpha_{ref_ind}
+            x[alf_mask] = np.minimum(1, 
+                                     np.maximum(0, x[alf_mask]))
+            x[self.ref_ind] = np.minimum(1, 
+                                         np.maximum(1e-3, 
+                                                    1 - np.sum(x[alf_mask])))
+
+            # Adjust theta and limit it to a positive value
+            x[theta_mask] += dx[theta_mask]
+            x[theta_mask] = np.maximum(0, x[theta_mask])
+
+            # Use technique of Gupta to enforce that theta_i*alpha_i = 0
+            # or that theta_i = alpha_i = 1e-10, which will kick one of them
+            # to zero on the next iteration.
+            change_ind = (((x[0:self.Np] < 1e-10) 
+                           & (x[self.Np:] == 0)) 
+                          | ((x[0:self.Np] < 1e-10) 
+                             & (x[self.Np:] == 0)) 
+                          | ((x[0:self.Np] < 1e-10) 
+                              & (x[self.Np:] < 1e-10)))
+            adjust_ind = np.append(change_ind, change_ind)
+            x[adjust_ind] = 1e-10
+            x[self.Np + self.ref_ind] = 0
+            x[alf_mask] = x[alf_mask]*(x[theta_mask] <= 1e-10)
+            x[theta_mask] = x[theta_mask]*(x[alf_mask] <= 1e-10)
+
             k += 1
-            print('k=', k)
-        
+
+            if print_iter_info:
+                print('k=', k)
+                print('error=', nres)
+
         return x
 
-        
+
 
 
