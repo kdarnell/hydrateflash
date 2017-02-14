@@ -204,6 +204,10 @@ class FlashController(object):
             self.ref_phase = 'vapor'
 
         self.feed = z
+        
+    def set_ref_index(self):
+        self.ref_ind = [self.ref_phase == phase for phase in self.phases]
+        
 
     # TODO Check the next three functions against Matlab output
     def calc_x(self, z, alpha, theta, K):
@@ -349,48 +353,99 @@ class FlashController(object):
     # idea to use my original algorithm or at the least compare the results
     # because it may be apppropriately solving things, but not applying the 
     # constraints correctly.
+#    def find_alphatheta_min(self, z, alpha0, theta0, K):
+#        # z is always constant
+#        # K will remain constant
+#        # alpha0 is the starting alpha
+#        # theta0 is the starting theta
+#        # Constaints (1): sum(alpha[:]) - 1 =  0, (2): 0 <= alpha[i] <= 1
+#        # xor(alpha[i] == 0, theta[i] == 0)
+#        # Objective funciton: self.Objective
+#        # Jacobian function: self.Jacobian
+#        # We will convert x = np.concatenate(alpha, theta).
+#        # Thus, alpha is x[0:self.Np] and theta is x[self.Np:]
+#        beta = 0.01
+#        
+#        Objective = lambda x: np.abs(self.Objective(z, x[0:self.Np], x[self.Np:], K)) + beta*(1.0 - np.sum(x[0:]))
+##        Jacobian = lambda x: self.Jacobian(z, x[0:self.Np], x[self.Np:], K)
+#        
+#        initial_guess = np.concatenate((alpha0, theta0))
+#        result = fsolve(Objective, initial_guess)
+#        return result
+
+
     def find_alphatheta_min(self, z, alpha0, theta0, K):
-        # z is always constant
-        # K will remain constant
-        # alpha0 is the starting alpha
-        # theta0 is the starting theta
-        # Constaints (1): sum(alpha[:]) - 1 =  0, (2): 0 <= alpha[i] <= 1
-        # xor(alpha[i] == 0, theta[i] == 0)
-        # Objective funciton: self.Objective
-        # Jacobian function: self.Jacobian
-        # We will convert x = np.concatenate(alpha, theta).
-        # Thus, alpha is x[0:self.Np] and theta is x[self.Np:]
         
-        Objective = lambda x: self.Objective(z, x[0:self.Np], x[self.Np:], K)
+        Objective = lambda x: self.Objective(z, x[0:self.Np], x[self.Np:], K) 
         Jacobian = lambda x: self.Jacobian(z, x[0:self.Np], x[self.Np:], K)
         
-        constraints = list()
-        # I actually think this will be taken care of by enforcing bounds.
-#        # Enforce alpha (x[0:self.Np])
-#        for ii in range(self.Np):
-#            constraints.append({'type': 'ineq', 'fun': lambda x: x[ii]})
-#            constraints.append({'type': 'ineq', 'fun': lambda x: 1 - x[ii]})
+        
+        if ~hasattr(self, 'ref_ind'):
+            self.ref_ind = 0
             
-        constraints.append({'type': 'eq', 
-                            'fun': lambda x: 1 - sum(x[0:self.Np])})        
-        constraints = tuple(constraints)
+        nres = 1e6
+        ndx = 1e6
+        TOL = 1e-6
+        kmax = 500
+        k = 0
         
-        alpha_bnds = [(0,1) for ii in range(self.Np)]
-        theta_bnds = [(0,None) for ii in range(self.Np)]
-        bnds = tuple(alpha_bnds) + tuple(theta_bnds)
         
-        initial_guess = np.concatenate((alpha0, theta0))
-        print('Obj = ', Objective(initial_guess))
-        print('Jac = ', Jacobian(initial_guess))
+        alf_mask = np.ones([2*self.Np], dtype=bool)
+        theta_mask = np.ones([2*self.Np], dtype=bool)
+        arr_mask = np.ones([2*self.Np], dtype=bool)
+        mat_mask = np.ones([2*self.Np,2*self.Np], dtype=bool)
 
+        
+        alf_mask[self.ref_ind] = 0
+        alf_mask[self.Np:] = 0
+        theta_mask[0:self.Np] = 0
+        theta_mask[self.ref_ind + self.Np] = 0
+        arr_mask[self.ref_ind] = 0
+        arr_mask[self.ref_ind + self.Np] = 0
+        mat_mask[self.ref_ind, :] = 0
+        mat_mask[self.ref_ind + self.Np, :] = 0
+        mat_mask[:, self.ref_ind] = 0
+        mat_mask[:, self.ref_ind + self.Np] = 0
 
-#        result = minimize(Objective, initial_guess,
-#                          method='TNC', 
-#                          bounds=bnds, constraints=constraints)
+        x = np.concatenate((alpha0, theta0))
+        
+        while nres > TOL and ndx > TOL and k < kmax:
+            dx = np.zeros([2*self.Np])
+            res = Objective(x)
+            J = Jacobian(x)
+            dx_tmp = -np.matmul(np.linalg.pinv(
+                                J[mat_mask].reshape([2*(self.Np - 1), 
+                                                     2*(self.Np - 1)])), 
+                            res[arr_mask])
+            dx[arr_mask] = dx_tmp
+            nres = np.linalg.norm(res)
+            
+            x[alf_mask] = (x[alf_mask] 
+                           + np.sign(dx[alf_mask]) 
+                           * np.minimum(np.maximum(1e-2,x[alf_mask]*0.5),
+                                        np.abs(dx[alf_mask])))
+            x[alf_mask] = np.minimum(1,np.maximum(0,x[alf_mask]))
+            x[self.ref_ind] = np.minimum(1,np.maximum(1e-3,1 - np.sum(x[alf_mask])))
 
-#        result = newton_krylov(Objective, initial_guess, method='lgmres', verbose=1)
-        result = fsolve(Objective, initial_guess)
-        return result
+            
+            x[theta_mask] += dx[theta_mask]
+            x[theta_mask] = np.maximum(0,x[theta_mask])
+            change_ind = (((x[0:self.Np] < 1e-10) & (x[self.Np:] == 0)) |
+                    ((x[0:self.Np] < 1e-10) & (x[self.Np:] == 0)) |
+                    ((x[0:self.Np] < 1e-10) & (x[self.Np:] < 1e-10)))
+            adjust_ind = np.append(change_ind, change_ind)
+            x[adjust_ind] = 1e-10 
+            x[self.Np + self.ref_ind] = 0
+            x[alf_mask] = x[alf_mask]*(x[theta_mask]<=1e-10)
+            x[theta_mask] = x[theta_mask]*(x[alf_mask]<=1e-10)
+            
+            
+            ndx = np.linalg.norm(dx)
+            k += 1
+            print('k=', k)
+        
+        return x
 
+        
 
 
