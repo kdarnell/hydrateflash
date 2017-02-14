@@ -206,7 +206,8 @@ class FlashController(object):
         self.feed = z
 
     def set_ref_index(self):
-        self.ref_ind = [self.ref_phase == phase for phase in self.phases]
+        self.ref_ind = [ii for ii, phase in enumerate(self.phases) 
+                        if phase == self.ref_phase].pop()
 
 
     # TODO Check the next three functions against Matlab output
@@ -226,8 +227,7 @@ class FlashController(object):
 
                 x_denominator += alpha[kk]*(K[ii, kk]*theta[kk] - 1.0)
             x_mat[ii, self.nonhyd_phases] = (
-                x_numerator[ii, self.nonhyd_phases]/x_denominator
-            )
+                x_numerator[ii, self.nonhyd_phases]/x_denominator)
 
             for hyd_phase, ind in self.hyd_phases.items():
                 x_mat[:, ind] = self.fug_list[ind].hyd_comp()
@@ -294,10 +294,11 @@ class FlashController(object):
                               - alpha*theta/(alpha + theta)**2)
         Jac_thetaStability = (alpha/(alpha + theta)
                               - alpha*theta/(alpha + theta)**2)
-        Jacobiaon_Stability = np.concatenate((np.diag(Jac_alphaStability),
-                                              np.diag(Jac_thetaStability)),
-                                             axis=1)
-        Jacobian = np.concatenate((Jacobian_Cost, Jacobiaon_Stability), axis=0)
+        Jacobion_Stability = np.concatenate((np.diag(Jac_alphaStability),
+                                             np.diag(Jac_thetaStability)),
+                                            axis=1)
+        
+        Jacobian = np.concatenate((Jacobian_Cost, Jacobion_Stability), axis=0)
 
         return Jacobian
 
@@ -356,13 +357,13 @@ class FlashController(object):
         Jacobian = lambda x: self.Jacobian(z, x[0:self.Np], x[self.Np:], K)
 
         # Set reference index if the controller hasn't already assigned it.
-        if ~hasattr(self, 'ref_ind'):
+        if not hasattr(self, 'ref_ind'):
             self.ref_ind = 0
 
         # Set iteration parameters
         nres = 1e6
         ndx = 1e6
-        TOL = 1e-6
+        TOL = 1e-8
         kmax = 500
         k = 0
         dx = np.zeros([2*self.Np])
@@ -393,14 +394,19 @@ class FlashController(object):
         x = np.concatenate((alpha0, theta0))
 
         # Iterate until converged
-        while nres > TOL and ndx > TOL and k < kmax:
+        while nres > TOL and ndx > TOL/100 and k < kmax:
 
             # Solve for change in variables using non-reference phases
             res = Objective(x)
             J = Jacobian(x)
             J_mod = J[mat_mask].reshape([2*(self.Np - 1), 2*(self.Np - 1)])
             res_mod = res[arr_mask]
-            dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
+            try:
+                dx_tmp = -np.linalg.solve(J_mod, res_mod)
+            except:
+                dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
+
+                
 
             # Populate dx for non-reference phases
             dx[arr_mask] = dx_tmp
@@ -448,6 +454,7 @@ class FlashController(object):
             if print_iter_info:
                 print('k=', k)
                 print('error=', nres)
+                print('param change=', ndx)
 
         return x
 
