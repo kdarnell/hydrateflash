@@ -204,9 +204,14 @@ class FlashController(object):
             self.ref_phase = 'vapor'
 
         self.feed = z
+        
+    def set_phases(self, phases):
+        self.phases = phases
 
     def set_ref_index(self):
-        self.ref_ind = [ii for ii, phase in enumerate(self.phases) 
+        if self.ref_phase not in self.phases:
+            self.phases.append(self.ref_phase)
+        self.ref_ind = [ii for ii, phase in enumerate(self.phases)
                         if phase == self.ref_phase].pop()
 
 
@@ -297,7 +302,7 @@ class FlashController(object):
         Jacobion_Stability = np.concatenate((np.diag(Jac_alphaStability),
                                              np.diag(Jac_thetaStability)),
                                             axis=1)
-        
+
         Jacobian = np.concatenate((Jacobian_Cost, Jacobion_Stability), axis=0)
 
         return Jacobian
@@ -345,9 +350,6 @@ class FlashController(object):
                                                       [],
                                                       self.ref_fug)
         return fug_out
-
-
-
 
     def find_alphatheta_min(self, z, alpha0, theta0, K, print_iter_info=False):
 
@@ -406,7 +408,7 @@ class FlashController(object):
             except:
                 dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
 
-                
+
 
             # Populate dx for non-reference phases
             dx[arr_mask] = dx_tmp
@@ -415,7 +417,7 @@ class FlashController(object):
             nres = np.linalg.norm(res)
             ndx = np.linalg.norm(dx)
 
-            # Adjust alpha using a maximum change of 
+            # Adjust alpha using a maximum change of
             # the larger of 0.5*alpha_i or 0.01.
             x[alf_mask] = (x[alf_mask]
                            + np.sign(dx[alf_mask])
@@ -424,10 +426,10 @@ class FlashController(object):
                                           np.abs(dx[alf_mask])))
 
             # Limit alpha to exist between 0 and 1 and adjust alpha_{ref_ind}
-            x[alf_mask] = np.minimum(1, 
+            x[alf_mask] = np.minimum(1,
                                      np.maximum(0, x[alf_mask]))
-            x[self.ref_ind] = np.minimum(1, 
-                                         np.maximum(1e-3, 
+            x[self.ref_ind] = np.minimum(1,
+                                         np.maximum(1e-3,
                                                     1 - np.sum(x[alf_mask])))
 
             # Adjust theta and limit it to a positive value
@@ -437,11 +439,11 @@ class FlashController(object):
             # Use technique of Gupta to enforce that theta_i*alpha_i = 0
             # or that theta_i = alpha_i = 1e-10, which will kick one of them
             # to zero on the next iteration.
-            change_ind = (((x[0:self.Np] < 1e-10) 
-                           & (x[self.Np:] == 0)) 
-                          | ((x[0:self.Np] < 1e-10) 
-                             & (x[self.Np:] == 0)) 
-                          | ((x[0:self.Np] < 1e-10) 
+            change_ind = (((x[0:self.Np] < 1e-10)
+                           & (x[self.Np:] == 0))
+                          | ((x[0:self.Np] < 1e-10)
+                             & (x[self.Np:] == 0))
+                          | ((x[0:self.Np] < 1e-10)
                               & (x[self.Np:] < 1e-10)))
             adjust_ind = np.append(change_ind, change_ind)
             x[adjust_ind] = 1e-10
@@ -458,6 +460,200 @@ class FlashController(object):
 
         return x
 
+    def ideal_LV(self, compobjs, T, P):
+        if not hasattr(compobjs, '__iter__'):
+            compobjs = [compobjs]
+
+        K = np.ones([len(compobjs)])
+        for ii, comp in enumerate(compobjs):
+            if comp.compname != 'h2o':
+                K[ii] = ((comp.Pc/P)
+                         * np.exp(5.373*(1.0 + comp.SRK['omega'])
+                                  *(1 - comp.Tc/T)))
+            else:
+                K[ii] = (-133.67 + 0.63288*T)/P + 3.19211e-3*P
+        return K
+
+    def ideal_VAq(self, compobjs, T, P):
+        if not hasattr(compobjs, '__iter__'):
+            compobjs = [compobjs]
+
+        K = np.ones([len(compobjs)])
+
+        for ii, comp in enumerate(compobjs):
+            if comp.compname != 'h2o':
+                gamma_inf = np.exp(0.688 - 0.642*comp.N_carb)
+                a1 = (5.927140 - 6.096480*(comp.Tc/T)
+                      - 1.288620*np.log(T/comp.Tc) + 0.169347*T**6/comp.Tc**6)
+
+                a2 = (15.25180 - 15.68750*(comp.Tc/T)
+                      - 13.47210*np.log(T/comp.Tc) + 0.43577*T**6/comp.Tc**6)
+                P_sat = comp.Pc*np.exp(a1 + comp.SRK['omega']*a2)
+            else:
+                gamma_inf = 1.0
+                P_sat = np.exp(12.048399 - 4030.18425/(T + -38.15))
+            K[ii] = (P_sat/P)*gamma_inf
+        return K
+
+    def ideal_VHs1(self, compobjs, T, P):
+        if not hasattr(compobjs, '__iter__'):
+            compobjs = [compobjs]
+
+        K = np.ones([len(compobjs)])
+        for ii, comp in enumerate(compobjs):
+            if comp.compname != 'h2o':
+                s = comp.ideal['Hs1']
+                K_wf = np.exp(
+                        s['a1'] + s['a2']*np.log(P) + s['a3']*np.log(P)**2
+                        - (s['a4'] + s['a5']*np.log(P) + s['a6']*np.log(P)**2
+                           + s['a7']*np.log(P)**3)/T
+                        + s['a8']/P + s['a9']/P**2 + s['a10']*T + s['a11']*P
+                        + s['a12']*np.log(P/T**2) + s['a13']/T**2)
+                K[ii] = K_wf/(1 - 0.88)
+            else:
+                K[ii] = (self.ideal_VAq(comp, T, P)
+                         / (0.88*self.ideal_IceAq(comp, T, P)))
+        return K
+
+    def ideal_VHs2(self, compobjs, T, P):
+        if not hasattr(compobjs, '__iter__'):
+            compobjs = [compobjs]
+
+        K = np.ones([len(compobjs)])
+        T_Kelvin = T
+        T = T*9.0/5.0 - 459.67
+        for ii, comp in enumerate(compobjs):
+            if comp.compname != 'h2o':
+                s = comp.ideal['Hs2']
+                K_wf = np.exp(
+                        s['a1'] + s['a2']*T + s['a3']*P + s['a4']/T
+                        + s['a5']/P + s['a6']*T*P + s['a6']*T**2
+                        + s['a8']*P**2 + s['a9']*P/T + s['a10']*np.log(P/T)
+                        + s['a11']/P**2 + s['a12']*T/P + s['a13']*T**2/P
+                        + s['a14']*P/T**2 + s['a15']*T/P**3 + s['a16']*T**3
+                        + s['a17']*P**3/T**2 + s['a18']*T**4
+                        + s['a19']*np.log(P))
+                K[ii] = K_wf/(1 - 0.90)
+            else:
+                K[ii] = (self.ideal_VAq(comp, T_Kelvin, P)
+                         / (0.90*self.ideal_IceAq(comp, T_Kelvin, P)))
+        return K
+
+    def ideal_IceAq(self, compobjs, T, P):
+        if not hasattr(compobjs, '__iter__'):
+            compobjs = [compobjs]
+
+        K = np.ones([len(compobjs)])
+        for ii, comp in enumerate(compobjs):
+            if comp.compname != 'h2o':
+                K[ii] = 0
+            else:
+                T_0 = 273.1576
+                P_0 = 6.11457e-3
+                T_ice = T_0 - 7.404e-3*(P - P_0) - 1.461e-6*(P - P_0)**2
+                xw_aq = 1 + 8.33076e-3*(T - T_ice) + 3.91416e-5*(T - T_ice)**2
+                K[ii] = 1.0/xw_aq
+        return K
 
 
+    def make_ideal_K_allmat(self, compobjs, T, P):
+        if not hasattr(compobjs, '__iter__'):
+            compobjs = [compobjs]
+        K_all_mat = np.zeros([len(compobjs), 5])
+        K_all_mat[:, 0] = self.ideal_LV(compobjs, T, P)
+        K_all_mat[:, 1] = self.ideal_VAq(compobjs, T, P)
+        K_all_mat[:, 2] = self.ideal_VHs1(compobjs, T, P)
+        K_all_mat[:, 3] = self.ideal_VHs2(compobjs, T, P)
+        K_all_mat[:, 4] = self.ideal_IceAq(compobjs, T, P)
+        return K_all_mat
 
+    def make_ideal_K_mat(self, compobjs, T, P, **kwargs):
+        if not hasattr(compobjs, '__iter__'):
+            compobjs = [compobjs]
+
+        if kwargs is not None:
+            if ('z' or 'feed') in kwargs:
+                try:
+                    self.set_feed(kwargs['z'])
+                except:
+                    self.set_feed(kwargs['feed'])
+            elif 'ref_phase' in kwargs:
+                self.ref_phase = kwargs['ref_phase']
+                if self.ref_phase not in self.phases:
+                    self.phases.append(self.ref_phase)
+                self.set_ref_index()
+
+            if 'phases' in kwargs:
+                phase_return = kwargs['phases']
+            else:
+                phase_return = self.phases
+        else:
+            phase_return = self.phases
+
+        K_all_mat = self.make_ideal_K_allmat(compobjs, T, P)
+        K_mat_ref = np.zeros([len(compobjs), len(phase_return)])
+
+        K_refdict = K_transform[self.ref_phase]
+        for ii, phase in enumerate(phase_return):
+            trans_tuple = K_refdict[phase]
+            if type(trans_tuple) is int:
+                if trans_tuple == 9:
+                    K_mat_ref[:, ii] = 1
+                else:
+                    K_mat_ref[:, ii] = K_all_mat[:, trans_tuple]
+            else:
+                if type(trans_tuple[0]) is int:
+                    if type(trans_tuple[1]) is int:
+                        if trans_tuple[0] == 9:
+                            K_mat_ref[:, ii] = 1/K_all_mat[:, trans_tuple[1]]
+                        else:
+                            K_mat_ref[:, ii] = (K_all_mat[:, trans_tuple[0]]
+                                                / K_all_mat[:, trans_tuple[1]])
+                    else:
+                        K_mat_ref[:, ii] = (
+                                K_all_mat[:, trans_tuple[0]]
+                                / (K_all_mat[:, trans_tuple[1][0]]
+                                   * K_all_mat[:, trans_tuple[1][1]]))
+                else:
+                    K_mat_ref[:, ii] = (
+                            (K_all_mat[:, trans_tuple[0][0]]
+                             * K_all_mat[:, trans_tuple[0][1]])
+                            / K_all_mat[:, trans_tuple[1]])
+        return K_mat_ref
+# Mapping from columns of K_all_mat to corresponding partition coefficient
+# First phase is numerator, second phase is denominator
+K_dict = {0: ('lhc', 'vapor'),
+          1: ('vapor', 'aqueous'),
+          2: ('vapor', 's1'),
+          3: ('vapor', 's2'),
+          4: ('ice', 'aqueous')}
+
+# Tranformation from K_all_mat to partition coefficients of the form,
+# K_{j, ref_phase} where keys in K_transform refer to reference phase
+# and subsequent keys refer to phase j, and tuple describes algebraic
+# manipulation of K_mat_all. 9 refers to the value 1 0-4 refers to a
+# column
+K_transform = {'aqueous': {'vapor': (1),
+                           'lhc': (1, 0),
+                           'aqueous': (9),
+                           'ice': (4),
+                           's1': (1, 2),
+                           's2': (1, 3)},
+               'vapor': {'vapor': (9),
+                         'lhc': (9, 0),
+                         'aqueous': (9, 1),
+                         'ice': (4, 1),
+                         's1': (9, 2),
+                         's2': (9, 3)},
+               'lhc': {'vapor': (0),
+                       'lhc': (9),
+                       'aqueous': (0, 1),
+                       'ice': ((0, 4), 1),
+                       's1': (0, 2),
+                       's2': (0, 3)},
+               'ice': {'vapor': (1, 4),
+                       'lhc': (1, (0, 4)),
+                       'aqueous': (9, 4),
+                       'ice': (9),
+                       's1': (1, (2, 4)),
+                       's2': (1, (3, 4))}}
