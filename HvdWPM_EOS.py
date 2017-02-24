@@ -30,16 +30,16 @@ class HydrateEos(object):
             'Object for calculating fugacity of water in hydrate' +
             ' with a mixture of gases.'
         )
-        # Set up arrays and matrices for future calculation 
+        # Set up arrays and matrices for future calculation
         self.compnames = [c.compname for c in compobjs]
         try:
             self.h2oind = [ii for ii, name in enumerate(self.compnames)
                            if name == 'h2o'][0]
-        except IndexError: 
-            raise RuntimeError(
-                'Hydrate EOS requires water to be present!'
-                 + '\nPlease provide water in your component list.')
-            
+        except IndexError:
+            raise RuntimeError("""
+                        Hydrate EOS requires water to be present!'\n
+                        Please provide water in your component list.'""")
+
         self.Nc = len(compobjs)
         self.compobjs = compobjs
         self.gwbeta_RT_cons = np.zeros(1)
@@ -48,12 +48,13 @@ class HydrateEos(object):
         self.activity = np.zeros(1)
         self.delta_mu_RT = np.zeros(1)
         self.gw0_RT = np.zeros(1)
-        
-            
+
+
         self.Hs = HydrateStructure(structure)
         self.alt_fug_vec = np.zeros(self.Nc)
         self.Y_small = np.zeros(self.Nc)
         self.Y_large = np.zeros(self.Nc)
+        self.fug = 0
 
         # Transfer everything from the eos-specific dictionary to
         # the Hs object for use in the rest of the class
@@ -99,12 +100,12 @@ class HydrateEos(object):
     def calc(self, compobjs, T, P, x, eq_fug):
         # x is a dummy variable in this EOS! Inserted here for parallism with
         # other EOS'
-        
+
         # Raise flag if components change.
         if compobjs != self.compobjs:
-            print('Warning: Action not supported.' +
-                  '\nComponents have changed. ' +
-                  '\nPlease create a new fugacity object.')
+            print("""Warning: Action not supported.\n
+                     Components have changed.\n
+                     Please create a new fugacity object.""")
             return None
         else:
             # Re-calculate constants if pressure or temperature changes.
@@ -198,7 +199,7 @@ class HvdwpmEos(HydrateEos):
         kappa = self.kappa0
         lattice_sz = self.Hs.a0_ast
         while error > TOL:
-            out = self.iterate_function(compobjs, T_0, P_0, 
+            out = self.iterate_function(compobjs, T_0, P_0,
                                         self.stdstate_fug,
                                         lattice_sz, kappa)
             C_small_new = out[0]
@@ -221,12 +222,12 @@ class HvdwpmEos(HydrateEos):
         self.a_0 = lattice_sz
         self.v_H_0 = self.lattice_to_volume(lattice_sz)
         return self
-        
+
     # Determine v(x, T, P) and C, Y:
     def find_hydrate_properties(self, compobjs, T, P, eq_fug):
         error = 1e6
         TOL = 1e-3
-        
+
         if 'C_small' in self.__dir__():
             C_small = self.C_small
             C_large = self.C_large
@@ -236,9 +237,10 @@ class HvdwpmEos(HydrateEos):
 
         # That will produce one set of C's and new Y's. We will then iterate
         # until convergence on 'C'. 'lattice_sz' is now fixed.
-        kappa = self.kappa_tmp
+        kappa = self.kappa_tmp.copy()
         lattice_sz = self.a_0
         while error > TOL:
+#            print('dictionary at find_props=', self.__dict__)
             out = self.iterate_function(compobjs, T, P, eq_fug,
                                         lattice_sz, kappa)
             C_small_new = out[0]
@@ -256,10 +258,10 @@ class HvdwpmEos(HydrateEos):
                                     - C_large[ii])/C_large_new[ii])
             C_small = C_small_new
             C_large = C_large_new
-        
+
         self.C_small = C_small
         self.C_large = C_large
-        self.kappa_tmp = kappa
+        self.kappa_tmp = kappa.copy()
         self.v_H = self.Hydrate_size(T, P, self.v_H_0, kappa)
         return self
 
@@ -270,7 +272,7 @@ class HvdwpmEos(HydrateEos):
         if self.Nc > 2:
             kappa = 3.0*np.sum(self.kappa_vec*Y_large)
         else:
-            kappa = 3.0*np.sum(self.kappa_vec)
+            kappa = self.kappa0
 
         return kappa
 
@@ -446,28 +448,31 @@ class HvdwpmEos(HydrateEos):
 
 
     def fugacity_calc(self, compobjs, T, P, x, eq_fug):
-        eq_fug[self.h2oind] = 0.0
-        
+
         if (eq_fug == self.eq_fug).all():
-            fug = self.fug
+            fug = self.fug.copy()
         else:
             fug = np.zeros(self.Nc)
             fug[1:] = eq_fug[1:]
-            # This will produce the correct C's and Y's, where Y is a 
-            # strong fucntion of 'eq_fug' and C is a weak function of 'eq_fug'
-            self.find_hydrate_properties(compobjs, T, P, eq_fug)
-            
-            # This strongly depends on Y
-            delta_mu_RT = self.delta_mu_func(compobjs, T, P)
-            
-            # This weakly depends on Y
-            activity = self.activity_func(T, P, self.v_H_0)
-            
-            # Thus, this depends strongly on Y
-            mu_H_RT = self.gwbeta_RT + activity + delta_mu_RT
-            fug[0] =np.exp(mu_H_RT - self.gw0_RT)
-            self.fug = fug
-            
+
+        # This will produce the correct C's and Y's, where Y is a
+        # strong fucntion of 'eq_fug' and C is a weak function of 'eq_fug'
+#        print(self.__dict__)
+        self.find_hydrate_properties(compobjs, T, P, eq_fug)
+#        print(self.__dict__)
+
+
+        # This strongly depends on Y
+        delta_mu_RT = self.delta_mu_func(compobjs, T, P)
+
+        # This weakly depends on Y
+        activity = self.activity_func(T, P, self.v_H_0)
+
+        # Thus, this depends strongly on Y
+        mu_H_RT = self.gwbeta_RT + activity + delta_mu_RT
+        fug[0] = np.exp(mu_H_RT - self.gw0_RT)
+        self.fug = fug.copy()
+
         return fug
 
     # Calcualte hydrate composition
@@ -476,7 +481,7 @@ class HvdwpmEos(HydrateEos):
                  + self.Hs.Nm['large']*self.Y_large)/self.Hs.Num_h2o
         x = x_tmp/(1.0 + np.sum(x_tmp))
         x[self.h2oind] = 1.0 - np.sum(x)
-        
+
         return x
 
 
@@ -486,9 +491,10 @@ class HydrateStructure(object):
     menu = {'s1': ('s1', '1', 1, 'si', 'i', 'one'),
             's2': ('s2', '2', 2, 'sii', 'ii', 'two'),
             'sh': ('sh', 'h')}
+
     def __init__(self, hyd_type):
-        self.description = ('Object for holding properties for each type of'
-                            + ' hydrate structure (1,2,H)')
+        self.description = ("""Object for holding properties for each type of
+                               hydrate structure (1,2,H)""")
 
         if str(hyd_type).lower() in self.menu['s1']:
             self.hydstruc = 's1'
@@ -497,10 +503,10 @@ class HydrateStructure(object):
         elif str(hyd_type).lower() in self.menu['sh']:
             self.hydstruc = 'sH'
         else:
-            raise RuntimeError(hyd_type + ' is not a supported hydrate '
-                               + 'structure!! \nConsult '
-                               + '"HydrateStructure.menu" '
-                               + 'attribute for valid structures.')
+            raise RuntimeError(hyd_type + """ 
+                               is not a supported hydrate structure!!\n
+                               Consult "HydrateStructure.menu" attribute 
+                               for valid structures.""")
 
         # 'alf' is presented as a volumetric parameter.
         # Divide by 3 when used for lattice parameter.

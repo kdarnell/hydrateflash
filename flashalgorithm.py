@@ -12,6 +12,7 @@ of EOS objects. I will prepare skeleton here first (01/11/17).
 """
 import numpy as np
 from scipy.optimize import minimize, newton_krylov, fsolve
+import time
 
 # Not sure if I want these classes in this file
 import component_properties as cp
@@ -63,10 +64,8 @@ class FlashController(object):
         self.ref_phase = None
         # Check that components exceed 1.
         if type(components) is str or len(components) == 1:
-            raise ValueError("""
-                    More than one component is necessary to run
-                    flash algorithm.
-                    """)
+            raise ValueError("""More than one component is necessary 
+                                to run flash algorithm.""")
         elif type(components[0]) is str:
             # Use list or array of component names to populate a new list of
             # component objects
@@ -76,9 +75,9 @@ class FlashController(object):
         elif isinstance(components[0], cp.Component):
             self.compobjs = components
         else:
-            raise ValueError("""
-                    Component are not properly defined. Pass a list of strings
-                    or a list of component objects""")
+            raise ValueError("""Component are not properly defined.
+                                Pass a list of strings
+                                or a list of component objects""")
 
         self.compname = []
         self.h2oexists = False
@@ -92,9 +91,8 @@ class FlashController(object):
 
         # Check that phases exceed 1
         if type(phases) is str or len(phases) == 1:
-            raise ValueError("""
-                    More than one phase is necessary to run
-                    flash algorithm.""")
+            raise ValueError(""""More than one component is necessary 
+                                to run flash algorithm.""")
         else:
 
             # Populate phase list and make sure it's a valid phase.
@@ -115,9 +113,9 @@ class FlashController(object):
                 else:
                     # Perhaps, I should just print warning that eliminates
                     # duplicate phases.
-                    raise ValueError("""
-                            One or more phases are repeated. Distinct phases
-                            are necessary to run flash algorithm.""")
+                    raise ValueError("""One or more phases are repeated. 
+                                        Distinct phases are necessary to 
+                                        run flash algorithm.""")
 
         # Allow option for changing the default eos for any given phase.
         # Check to make sure the eos is supported and that the phase being
@@ -190,11 +188,12 @@ class FlashController(object):
         self.nonhyd_phases = [ii for ii in range(len(self.phases))
                               if ii not in self.hyd_phases.values()]
         self.Np = len(self.phases)
+        self.set_ref_index()
 
     def set_feed(self, z):
         if len(z) != len(self.compobjs):
-            raise ValueError('Feed fraction has different dimension than'
-                             + ' initial component list!')
+            raise ValueError("""Feed fraction has different dimension than
+                                initial component list!""")
         elif self.h2oexists:
             if z[self.h2oind] > 0.8:
                 self.ref_phase = 'aqueous'
@@ -203,7 +202,7 @@ class FlashController(object):
             # lhc, but we will handle that within a different method.
             self.ref_phase = 'vapor'
 
-        self.feed = z
+        self.feed = np.asarray(z)
         
     def set_phases(self, phases):
         self.phases = phases
@@ -213,15 +212,143 @@ class FlashController(object):
             self.phases.append(self.ref_phase)
         self.ref_ind = [ii for ii, phase in enumerate(self.phases)
                         if phase == self.ref_phase].pop()
+        
+    def change_ref_phase(self):
+        self.ref_phases_tried.append(self.ref_phase)
+        self.ref_phase = [phase for phase in self.phases
+                          if phase not in self.ref_phases_tried 
+                          and phase not in ['s1', 's2']].pop(0)
+        self.set_ref_index()
+        
+    def main_handler(self, compobjs, z, T, P, 
+                     K_init='default', verbose=False, 
+                     initialize=True, **kwargs):
+        
+        self.ref_phases_tried = []
+        
+        if verbose:
+            tstart = time.time()
+        
+        if K_init != 'default':
+            # Add more code to allow the specification of
+            print('K is not the default')
+            K_0 = K_init
+        else:
+            self.set_feed(z)
+            self.set_ref_index()
+            K_0 = self.make_ideal_K_mat(compobjs, T, P)
+            alpha_0 = np.ones([self.Np])/self.Np
+            theta_0 = np.zeros([self.Np])
+            
+        if type(z) != np.ndarray:
+            z = np.asarray(z)
+            
+        if type(K_init)!= np.ndarray:
+            K_init = np.asarray(K_init)
+            
+        if initialize or not hasattr(self, 'alpha_calc'):
+            newton_out = self.find_alphatheta_min(z, alpha_0, theta_0, K_0)
+            alpha_new = newton_out[0:self.Np]
+            theta_new = newton_out[self.Np:]
+            x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
+            fug_new = self.calc_fugacity(T, P, x_new)
+            x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
+            K_new = self.calc_K(T, P, x_new)
+        else:
+            alpha_new = self.alpha_calc.copy()
+            theta_new = self.theta_calc.copy()
+            K_new = self.K_calc.copy()
+            x_new = self.x_calc.copy()
+            
+        
+        error = 1e6
+        TOL = 1e-6
+        itercount = 0
+        refphase_itercount = 0
+        iterlim = 20
+        
+        alpha_old = alpha_new.copy()
+        theta_old = theta_new.copy()
+        x_old = x_new.copy()
+        K_old = K_new.copy()
+        
+        
+        while error > TOL and itercount < iterlim:
+            # Perform newton iteration to update alpha and theta at
+            # a fixed x and K
+            newton_out = self.find_alphatheta_min(z, alpha_old, 
+                                                  theta_old, K_old)
+            alpha_new = newton_out[0:self.Np]
+            theta_new = newton_out[self.Np:]
+            
+            # Perform one iteration of successive substitution to update
+            # x and K at the new alpha and theta.
+#            x_update = self.calc_x(z, alpha_new, theta_new, K_old, T, P)
+#            x_diff = x_update - x_new
+#            x_new = x_new + np.sign(x_diff)*np.maximum(0.5*x_new, abs(x_diff))
+            x_new = self.calc_x(z, alpha_new, theta_new, K_old, T, P)
+            K_new = self.calc_K(T, P, x_new)
+            x_error = np.sum(abs(x_new - x_old))
+
+            
+            # Determine error associated new x and K and change in x
+            # Set iteration error to the maximum of the two.
+            Obj_error = np.sum(self.Objective(z, alpha_new, 
+                                              theta_new, K_new))
+            error = max(Obj_error, x_error)
+            
+            itercount += 1
+            refphase_itercount += 1
+            
+            if refphase_itercount > 5 and alpha_new[self.ref_ind] < 0.01:
+                self.change_ref_phase() 
+                refphase_itercount = 0
+                K_new = self.make_ideal_K_mat(compobjs, T, P)
+                alpha_new = np.ones([self.Np])/self.Np
+                theta_new = np.zeros([self.Np])
+                print('Changed reference phase')
+            
+            # Set old values using copy 
+            # (NOT direct assignment due to 
+            # Python quirkiness of memory indexing)
+            alpha_old = alpha_new.copy()
+            theta_old = theta_new.copy()
+            x_old = x_new.copy()
+            K_old = K_new.copy()
+          
+            
+            
+            
+            
+            # Print a bunch of crap if desired.
+            if verbose:
+                print('\nIteration no: ', itercount)
+                print('alpha = ', alpha_new)
+                print('theta = ', theta_new)
+                print('x = \n', x_new)
+                print('K = \n', K_new)
+                print('Composition error: ', x_error)
+                print('Objective function error: ', Obj_error)
+
+        if verbose:
+            print('\nElapsed time =', time.time() - tstart, '\n')
+        
+        self.K_calc = K_new.copy()
+        self.x_calc = x_new.copy()
+        self.alpha_calc = alpha_new.copy()
+        self.theta_calc = theta_new.copy()
+            
+        return [x_new, alpha_new, K_new, itercount, error]
 
 
     # TODO Check the next three functions against Matlab output
-    def calc_x(self, z, alpha, theta, K):
+    # And change calc_x so that I make use of the np.newaxis utility!!
+    def calc_x(self, z, alpha, theta, K, T, P):
         # z, alpha, and theta are vectors.
         # z is length Nc, alpha and theta are length Np
         # K is matrix of size Nc x Np
-        x_mat = np.zeros([len(self.compobjs), len(self.phases)])
-        x_numerator = np.zeros([len(self.compobjs), len(self.phases)])
+        x_mat = np.zeros([self.Nc, self.Np])
+        x_numerator = np.zeros([self.Nc, self.Np])
 
 
         for ii, comp in enumerate(self.compobjs):
@@ -229,22 +356,37 @@ class FlashController(object):
             for kk, phase in enumerate(self.phases):
                 if phase not in ('s1', 's2'):
                     x_numerator[ii, kk] = z[ii]*K[ii, kk]*np.exp(theta[kk])
-
-                x_denominator += alpha[kk]*(K[ii, kk]*theta[kk] - 1.0)
+                
+                x_denominator += alpha[kk]*(K[ii, kk]*np.exp(theta[kk]) - 1.0)
             x_mat[ii, self.nonhyd_phases] = (
                 x_numerator[ii, self.nonhyd_phases]/x_denominator)
 
-            for hyd_phase, ind in self.hyd_phases.items():
-                x_mat[:, ind] = self.fug_list[ind].hyd_comp()
+        fug_mat = self.calc_fugacity(T, P, x_mat)
+        for hyd_phase, ind in self.hyd_phases.items():
+            x_mat[:, ind] = self.fug_list[ind].hyd_comp()
+            
+        
+#        # Normalize x_mat so that each column adds to one
+#        x_colsum = np.sum(x_mat, axis=0)
+#        x_mat = x_mat / x_colsum[np.newaxis, :]
 
         return x_mat
 
     def Objective(self, z, alpha, theta, K):
+        if type(z) != np.ndarray:
+            z = np.asarray(z)
+        if type(alpha) != np.ndarray:
+            alpha = np.asarray(alpha)
+        if type(theta) != np.ndarray:
+            theta = np.asarray(theta)
+        if type(K) != np.ndarray:
+            K = np.asarray(K)
+            
         # z, alpha, and theta are vectors.
         # z is length Nc, alpha and theta are length Np
         # K is matrix of size Nc x Np
 
-        # Making use of numpy's broadcasting capabilities to implicitly
+        # Making use of np's broadcasting capabilities to implicitly
         # reshape and 'tile' matrices.
         E_numerator = z[:, np.newaxis]*(K*np.exp(theta[np.newaxis, :]) - 1)
         E_denomintor = 1 + np.sum(
@@ -261,7 +403,7 @@ class FlashController(object):
         # K is matrix of size Nc x Np
 
 
-        # Making use of numpy's broadcasting capabilities to implicitly
+        # Making use of np's broadcasting capabilities to implicitly
         # reshape and 'tile' matrices.
         Stability_mat = (K*np.exp(theta[np.newaxis, :]) - 1.0)
         J_alphaNumerator = (z[:, np.newaxis, np.newaxis]
@@ -314,10 +456,12 @@ class FlashController(object):
     def calc_K(self, T, P, x_mat):
         fug_mat = self.calc_fugacity(T, P, x_mat)
         K_mat = np.ones_like(x_mat)
+        self.set_ref_index()
+        
         for ii, phase in enumerate(self.phases):
             if phase != self.ref_phase:
-                K_mat[:, ii] = (self.ref_fug/fug_mat[:, ii]
-                                * x_mat[:, ii]/self.ref_comp)
+                K_mat[:, ii] = (fug_mat[:, self.ref_ind]/fug_mat[:, ii]
+                                * x_mat[:, ii]/x_mat[:, self.ref_ind])
         return K_mat
 
     # x_mat will be a matrix of the compositions in each phase.
@@ -337,10 +481,9 @@ class FlashController(object):
                                                        P,
                                                        x_mat[:, ii],
                                                        phase=phase)
-            # Update the reference phase fugacity, which cannot be hydrate.
-            if self.ref_phase == phase:
-                    self.ref_fug = fug_out[:,ii]
-                    self.ref_comp = x_mat[:,ii]
+        # Update the reference phase fugacity, which cannot be hydrate.
+        self.ref_fug = fug_out[:, self.ref_ind]
+        self.ref_comp = x_mat[:, self.ref_ind]
 
         # Do this separetly because we need the reference phase fugacity.
         for hyd_phase, ind in self.hyd_phases.items():
@@ -349,6 +492,8 @@ class FlashController(object):
                                                       P,
                                                       [],
                                                       self.ref_fug)
+
+            
         return fug_out
 
     def find_alphatheta_min(self, z, alpha0, theta0, K, print_iter_info=False):
@@ -366,7 +511,7 @@ class FlashController(object):
         nres = 1e6
         ndx = 1e6
         TOL = 1e-8
-        kmax = 500
+        kmax = 20
         k = 0
         dx = np.zeros([2*self.Np])
 
@@ -421,13 +566,13 @@ class FlashController(object):
             # the larger of 0.5*alpha_i or 0.01.
             x[alf_mask] = (x[alf_mask]
                            + np.sign(dx[alf_mask])
-                             * np.minimum(np.maximum(1e-2,
-                                                     0.5*x[alf_mask]),
+                             * np.minimum(np.maximum(5e-3, 0.5*x[alf_mask]),
                                           np.abs(dx[alf_mask])))
 
             # Limit alpha to exist between 0 and 1 and adjust alpha_{ref_ind}
             x[alf_mask] = np.minimum(1,
                                      np.maximum(0, x[alf_mask]))
+
             x[self.ref_ind] = np.minimum(1,
                                          np.maximum(1e-3,
                                                     1 - np.sum(x[alf_mask])))
@@ -441,8 +586,8 @@ class FlashController(object):
             # to zero on the next iteration.
             change_ind = (((x[0:self.Np] < 1e-10)
                            & (x[self.Np:] == 0))
-                          | ((x[0:self.Np] < 1e-10)
-                             & (x[self.Np:] == 0))
+                          | ((x[0:self.Np] == 0)
+                             & (x[self.Np:] < 1e-10))
                           | ((x[0:self.Np] < 1e-10)
                               & (x[self.Np:] < 1e-10)))
             adjust_ind = np.append(change_ind, change_ind)
@@ -567,6 +712,9 @@ class FlashController(object):
         K_all_mat[:, 4] = self.ideal_IceAq(compobjs, T, P)
         return K_all_mat
 
+    # Initialize the partition coefficient matrix based on P, T and components
+    # Provide the option to specify the feed to predict the appropriate
+    # reference phase or the option to speciy the reference phase explicitly.
     def make_ideal_K_mat(self, compobjs, T, P, **kwargs):
         if not hasattr(compobjs, '__iter__'):
             compobjs = [compobjs]
