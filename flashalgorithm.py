@@ -190,19 +190,20 @@ class FlashController(object):
         self.Np = len(self.phases)
         self.set_ref_index()
 
-    def set_feed(self, z):
-        if len(z) != len(self.compobjs):
-            raise ValueError("""Feed fraction has different dimension than
-                                initial component list!""")
-        elif self.h2oexists:
-            if z[self.h2oind] > 0.8:
-                self.ref_phase = 'aqueous'
-        else:
-            # This is true for now. In practice, this sometims needs to be
-            # lhc, but we will handle that within a different method.
-            self.ref_phase = 'vapor'
-
+    def set_feed(self, z, setref=True):
         self.feed = np.asarray(z)
+        
+        if setref:
+            if len(z) != len(self.compobjs):
+                raise ValueError("""Feed fraction has different dimension than
+                                    initial component list!""")
+            elif self.h2oexists:
+                if z[self.h2oind] > 0.8:
+                    self.ref_phase = 'aqueous'
+            else:
+                # This is true for now. In practice, this sometims needs to be
+                # lhc, but we will handle that within a different method.
+                self.ref_phase = 'vapor'
         
     def set_phases(self, phases):
         self.phases = phases
@@ -224,6 +225,9 @@ class FlashController(object):
                      K_init='default', verbose=False, 
                      initialize=True, **kwargs):
         
+        z = z / sum(z)
+        self.set_feed(z)
+        self.set_ref_index()
         self.ref_phases_tried = []
         
         if verbose:
@@ -234,8 +238,6 @@ class FlashController(object):
             print('K is not the default')
             K_0 = K_init
         else:
-            self.set_feed(z)
-            self.set_ref_index()
             K_0 = self.make_ideal_K_mat(compobjs, T, P)
             alpha_0 = np.ones([self.Np])/self.Np
             theta_0 = np.zeros([self.Np])
@@ -265,7 +267,7 @@ class FlashController(object):
         TOL = 1e-6
         itercount = 0
         refphase_itercount = 0
-        iterlim = 20
+        iterlim = 100
         
         alpha_old = alpha_new.copy()
         theta_old = theta_new.copy()
@@ -300,7 +302,7 @@ class FlashController(object):
             itercount += 1
             refphase_itercount += 1
             
-            if refphase_itercount > 5 and alpha_new[self.ref_ind] < 0.01:
+            if refphase_itercount > 8 and alpha_new[self.ref_ind] < 0.01:
                 self.change_ref_phase() 
                 refphase_itercount = 0
                 K_new = self.make_ideal_K_mat(compobjs, T, P)
@@ -338,7 +340,7 @@ class FlashController(object):
         self.alpha_calc = alpha_new.copy()
         self.theta_calc = theta_new.copy()
             
-        return [x_new, alpha_new, K_new, itercount, error]
+        return [x_new, alpha_new, theta_new, K_new, itercount, error]
 
 
     # TODO Check the next three functions against Matlab output
@@ -511,7 +513,7 @@ class FlashController(object):
         nres = 1e6
         ndx = 1e6
         TOL = 1e-8
-        kmax = 20
+        kmax = 100
         k = 0
         dx = np.zeros([2*self.Np])
 
