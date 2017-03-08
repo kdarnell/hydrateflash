@@ -223,12 +223,14 @@ class FlashController(object):
         
     def main_handler(self, compobjs, z, T, P, 
                      K_init='default', verbose=False, 
-                     initialize=True, **kwargs):
+                     initialize=True, run_diagnostics=False,
+                     **kwargs):
         
-        z = z / sum(z)
+        z = np.asarray(z / sum(z))
         self.set_feed(z)
         self.set_ref_index()
         self.ref_phases_tried = []
+        print(self.ref_phase)
         
         if verbose:
             tstart = time.time()
@@ -249,25 +251,39 @@ class FlashController(object):
             K_init = np.asarray(K_init)
             
         if initialize or not hasattr(self, 'alpha_calc'):
-            newton_out = self.find_alphatheta_min(z, alpha_0, theta_0, K_0)
-            alpha_new = newton_out[0:self.Np]
-            theta_new = newton_out[self.Np:]
+#            newton_out = self.find_alphatheta_min(z, alpha_0, theta_0, K_0)
+#            alpha_new = newton_out[0:self.Np]
+#            theta_new = newton_out[self.Np:]
+            alpha_new, theta_new = self.find_alphatheta_min(z, alpha_0, 
+                                                            theta_0, K_0)
             x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
             fug_new = self.calc_fugacity(T, P, x_new)
             x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
             K_new = self.calc_K(T, P, x_new)
+            
+            if run_diagnostics:
+                print('Initial K:\n', K_0)
+                print('First iter K:\n', K_new)
+                print('First x:\n', x_new)
+                print('First fugacity :\n', fug_new)
+                print('First alpha:\n', alpha_new)
+                print('First theta:\n', theta_new)
+
         else:
             alpha_new = self.alpha_calc.copy()
             theta_new = self.theta_calc.copy()
             K_new = self.K_calc.copy()
             x_new = self.x_calc.copy()
             
+       
+        
+            
         
         error = 1e6
         TOL = 1e-6
         itercount = 0
         refphase_itercount = 0
-        iterlim = 100
+        iterlim = 50
         
         alpha_old = alpha_new.copy()
         theta_old = theta_new.copy()
@@ -275,22 +291,40 @@ class FlashController(object):
         K_old = K_new.copy()
         
         
+        
         while error > TOL and itercount < iterlim:
             # Perform newton iteration to update alpha and theta at
             # a fixed x and K
-            newton_out = self.find_alphatheta_min(z, alpha_old, 
-                                                  theta_old, K_old)
-            alpha_new = newton_out[0:self.Np]
-            theta_new = newton_out[self.Np:]
+#            newton_out = self.find_alphatheta_min(z, alpha_old, 
+#                                                  theta_old, K_old)
+#            alpha_new = newton_out[0:self.Np]
+#            theta_new = newton_out[self.Np:]
+            alpha_new, theta_new = self.find_alphatheta_min(z, alpha_old, 
+                                                             theta_old, K_new)
+
             
             # Perform one iteration of successive substitution to update
             # x and K at the new alpha and theta.
 #            x_update = self.calc_x(z, alpha_new, theta_new, K_old, T, P)
 #            x_diff = x_update - x_new
 #            x_new = x_new + np.sign(x_diff)*np.maximum(0.5*x_new, abs(x_diff))
-            x_new = self.calc_x(z, alpha_new, theta_new, K_old, T, P)
-            K_new = self.calc_K(T, P, x_new)
-            x_error = np.sum(abs(x_new - x_old))
+            x_error = 1e6
+            x_counter = 0
+            while x_error > TOL*100 and x_counter < 1:
+                x_new = self.calc_x(z, alpha_new, theta_new, K_new, T, P)
+                K_new = self.calc_K(T, P, x_new)
+                x_error = np.sum(abs(x_new - x_old))
+                x_counter += 1
+            
+            if run_diagnostics:
+                print('Iter K:\n', K_new)
+                print('Iter x:\n', x_new)
+                print('Iter alpha:\n', alpha_new)
+                print('Iter theta:\n', theta_new)
+                print('Iter fug:\n:', self.calc_fugacity(T, P, x_new))
+                print('Iter z:\n:', z)
+
+
 
             
             # Determine error associated new x and K and change in x
@@ -301,15 +335,19 @@ class FlashController(object):
             
             itercount += 1
             refphase_itercount += 1
+            nan_occur = (np.isnan(x_new).any() or np.isnan(K_new).any() 
+                         or np.isnan(alpha_new).any() or np.isnan(theta_new).any())
             
-            if refphase_itercount > 8 and alpha_new[self.ref_ind] < 0.01:
+            if ((refphase_itercount > 10 
+                and alpha_new[self.ref_ind] < 0.01) 
+                or nan_occur) :
                 self.change_ref_phase() 
                 refphase_itercount = 0
                 K_new = self.make_ideal_K_mat(compobjs, T, P)
                 alpha_new = np.ones([self.Np])/self.Np
                 theta_new = np.zeros([self.Np])
                 print('Changed reference phase')
-            
+                
             # Set old values using copy 
             # (NOT direct assignment due to 
             # Python quirkiness of memory indexing)
@@ -340,7 +378,7 @@ class FlashController(object):
         self.alpha_calc = alpha_new.copy()
         self.theta_calc = theta_new.copy()
             
-        return [x_new, alpha_new, theta_new, K_new, itercount, error]
+        return [x_new, alpha_new, K_new, itercount, error]
 
 
     # TODO Check the next three functions against Matlab output
@@ -349,20 +387,34 @@ class FlashController(object):
         # z, alpha, and theta are vectors.
         # z is length Nc, alpha and theta are length Np
         # K is matrix of size Nc x Np
-        x_mat = np.zeros([self.Nc, self.Np])
-        x_numerator = np.zeros([self.Nc, self.Np])
-
-
-        for ii, comp in enumerate(self.compobjs):
-            x_denominator = 1.0
-            for kk, phase in enumerate(self.phases):
-                if phase not in ('s1', 's2'):
-                    x_numerator[ii, kk] = z[ii]*K[ii, kk]*np.exp(theta[kk])
-                
-                x_denominator += alpha[kk]*(K[ii, kk]*np.exp(theta[kk]) - 1.0)
-            x_mat[ii, self.nonhyd_phases] = (
-                x_numerator[ii, self.nonhyd_phases]/x_denominator)
-
+        
+        if type(z) != np.ndarray:
+            z = np.asarray(z)
+        if type(alpha) != np.ndarray:
+            alpha = np.asarray(alpha)
+        if type(theta) != np.ndarray:
+            theta = np.asarray(theta)
+        if type(K) != np.ndarray:
+            K = np.asarray(K)
+  
+        x_numerator = z[:, np.newaxis]*K*np.exp(theta[np.newaxis, :])
+        x_denominator = 1 + np.sum(
+                alpha[np.newaxis, :]*(K*np.exp(theta[np.newaxis, :]) - 1),
+                axis=1)
+        x_mat = x_numerator/x_denominator[:, np.newaxis]
+        
+#        x_mat = np.zeros([self.Nc, self.Np])
+#        x_numerator = np.zeros([self.Nc, self.Np])
+#        for ii, comp in enumerate(self.compobjs):
+#            x_denominator = 1.0
+#            for kk, phase in enumerate(self.phases):
+#                if phase not in ('s1', 's2'):
+#                    x_numerator[ii, kk] = z[ii]*K[ii, kk]*np.exp(theta[kk])
+#                
+#                x_denominator += alpha[kk]*(K[ii, kk]*np.exp(theta[kk]) - 1.0)
+#            x_mat[ii, self.nonhyd_phases] = (
+#                x_numerator[ii, self.nonhyd_phases]/x_denominator)
+    
         fug_mat = self.calc_fugacity(T, P, x_mat)
         for hyd_phase, ind in self.hyd_phases.items():
             x_mat[:, ind] = self.fug_list[ind].hyd_comp()
@@ -372,7 +424,7 @@ class FlashController(object):
 #        x_colsum = np.sum(x_mat, axis=0)
 #        x_mat = x_mat / x_colsum[np.newaxis, :]
 
-        return x_mat
+        return np.minimum(1, np.abs(x_mat))
 
     def Objective(self, z, alpha, theta, K):
         if type(z) != np.ndarray:
@@ -403,42 +455,44 @@ class FlashController(object):
         # z, alpha, and theta are vectors.
         # z is length Nc, alpha and theta are length Np
         # K is matrix of size Nc x Np
+        
+        if type(z) != np.ndarray:
+            z = np.asarray(z)
+        if type(alpha) != np.ndarray:
+            alpha = np.asarray(alpha)
+        if type(theta) != np.ndarray:
+            theta = np.asarray(theta)
+        if type(K) != np.ndarray:
+            K = np.asarray(K)
 
 
         # Making use of np's broadcasting capabilities to implicitly
         # reshape and 'tile' matrices.
+        
         Stability_mat = (K*np.exp(theta[np.newaxis, :]) - 1.0)
         J_alphaNumerator = (z[:, np.newaxis, np.newaxis]
                      * Stability_mat[:, :, np.newaxis]
                      * Stability_mat[:, np.newaxis, :])
-
         J_thetaNumerator = (z[:, np.newaxis, np.newaxis]
                      * Stability_mat[:, :, np.newaxis]
                      * K[:, np.newaxis,:]
                      * alpha[np.newaxis, np.newaxis, :]
                      * np.exp(theta[np.newaxis, np.newaxis :]))
-
         Denomiator = (1.0 + (np.sum(alpha[np.newaxis, :]
                              * Stability_mat, axis=1)))**2
-
         Jac_alphaCost = -np.sum(J_alphaNumerator
                                 / Denomiator[:, np.newaxis, np.newaxis],
                                 axis = 0)
-
         Jac_thetaCost = -np.sum(J_thetaNumerator
                                 / Denomiator[:, np.newaxis, np.newaxis],
                                 axis = 0)
-
         Diag_denom = 1.0 + np.sum((K*np.exp(theta[np.newaxis, :]) - 1.0)
                                    * alpha[np.newaxis,:], axis=1)
         Diag = np.sum(z[:, np.newaxis]*K*np.exp(theta[np.newaxis, :])
                       / Diag_denom[:, np.newaxis],
                       axis=0)
         Jac_thetaCost += np.diag(Diag)
-
         Jacobian_Cost = np.concatenate((Jac_alphaCost, Jac_thetaCost), axis=1)
-
-
         Jac_alphaStability = (theta/(alpha + theta)
                               - alpha*theta/(alpha + theta)**2)
         Jac_thetaStability = (alpha/(alpha + theta)
@@ -446,7 +500,6 @@ class FlashController(object):
         Jacobion_Stability = np.concatenate((np.diag(Jac_alphaStability),
                                              np.diag(Jac_thetaStability)),
                                             axis=1)
-
         Jacobian = np.concatenate((Jacobian_Cost, Jacobion_Stability), axis=0)
 
         return Jacobian
@@ -458,13 +511,12 @@ class FlashController(object):
     def calc_K(self, T, P, x_mat):
         fug_mat = self.calc_fugacity(T, P, x_mat)
         K_mat = np.ones_like(x_mat)
-        self.set_ref_index()
         
         for ii, phase in enumerate(self.phases):
             if phase != self.ref_phase:
                 K_mat[:, ii] = (fug_mat[:, self.ref_ind]/fug_mat[:, ii]
                                 * x_mat[:, ii]/x_mat[:, self.ref_ind])
-        return K_mat
+        return np.real(np.abs(K_mat))
 
     # x_mat will be a matrix of the compositions in each phase.
     # It should be Nc x Np
@@ -502,8 +554,8 @@ class FlashController(object):
 
         # Use pre-defined Objective and Jacobian functions, but adjust for
         #  single input.
-        Objective = lambda x: self.Objective(z, x[0:self.Np], x[self.Np:], K)
-        Jacobian = lambda x: self.Jacobian(z, x[0:self.Np], x[self.Np:], K)
+#        Objective = lambda x: self.Objective(z, x[0:self.Np], x[self.Np:], K)
+#        Jacobian = lambda x: self.Jacobian(z, x[0:self.Np], x[self.Np:], K)
 
         # Set reference index if the controller hasn't already assigned it.
         if not hasattr(self, 'ref_ind'):
@@ -516,11 +568,21 @@ class FlashController(object):
         kmax = 100
         k = 0
         dx = np.zeros([2*self.Np])
+        
+        if type(z) != np.ndarray:
+            z = np.asarray(z)
+        if type(alpha0) != np.ndarray:
+            alpha0 = np.asarray(alpha0)
+        if type(theta0) != np.ndarray:
+            theta0 = np.asarray(theta0)
+        if type(K) != np.ndarray:
+            K = np.asarray(K)
 
         # Mask arrays to avoid the reference phase.
         alf_mask = np.ones([2*self.Np], dtype=bool)
         theta_mask = np.ones([2*self.Np], dtype=bool)
-        arr_mask = np.ones([2*self.Np], dtype=bool)
+        arr_mask = np.ones([self.Np], dtype=bool)
+        arrdbl_mask = np.ones([2*self.Np], dtype=bool)
         mat_mask = np.ones([2*self.Np, 2*self.Np], dtype=bool)
 
         # Populate masked arrays for 4 different types.
@@ -532,7 +594,8 @@ class FlashController(object):
         theta_mask[self.ref_ind + self.Np] = 0
         # Mask reference phase in x array
         arr_mask[self.ref_ind] = 0
-        arr_mask[self.ref_ind + self.Np] = 0
+        arrdbl_mask[self.ref_ind] = 0
+        arrdbl_mask[self.ref_ind + self.Np] = 0
         # Mask reference phase rows and columns in Jacobian matrix
         mat_mask[self.ref_ind, :] = 0
         mat_mask[self.ref_ind + self.Np, :] = 0
@@ -540,25 +603,31 @@ class FlashController(object):
         mat_mask[:, self.ref_ind + self.Np] = 0
 
         # Define 'x' as the concatenation of alpha and theta
-        x = np.concatenate((alpha0, theta0))
+#        x = np.concatenate((alpha0, theta0))
 
+        alpha_old = alpha0.copy()
+        theta_old = theta0.copy()
+        alpha_new = alpha_old.copy()
+        theta_new = theta_old.copy()
+        
         # Iterate until converged
         while nres > TOL and ndx > TOL/100 and k < kmax:
 
             # Solve for change in variables using non-reference phases
-            res = Objective(x)
-            J = Jacobian(x)
+            res = self.Objective(z, alpha_old, theta_old, K)
+            J = self.Jacobian(z, alpha_old, theta_old, K)
             J_mod = J[mat_mask].reshape([2*(self.Np - 1), 2*(self.Np - 1)])
-            res_mod = res[arr_mask]
-            try:
-                dx_tmp = -np.linalg.solve(J_mod, res_mod)
-            except:
-                dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
+            res_mod = res[arrdbl_mask]
+#            try:
+#                dx_tmp = -np.linalg.solve(J_mod, res_mod)
+#            except:
+#                dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
+            dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
 
 
 
             # Populate dx for non-reference phases
-            dx[arr_mask] = dx_tmp
+            dx[arrdbl_mask] = dx_tmp
 
             # Determine error
             nres = np.linalg.norm(res)
@@ -566,46 +635,48 @@ class FlashController(object):
 
             # Adjust alpha using a maximum change of
             # the larger of 0.5*alpha_i or 0.01.
-            x[alf_mask] = (x[alf_mask]
+            alpha_new[arr_mask] = (alpha_old[arr_mask]
                            + np.sign(dx[alf_mask])
-                             * np.minimum(np.maximum(5e-3, 0.5*x[alf_mask]),
+                             * np.minimum(np.maximum(1e-2, 0.5*alpha_new[arr_mask]),
                                           np.abs(dx[alf_mask])))
-
+            
             # Limit alpha to exist between 0 and 1 and adjust alpha_{ref_ind}
-            x[alf_mask] = np.minimum(1,
-                                     np.maximum(0, x[alf_mask]))
-
-            x[self.ref_ind] = np.minimum(1,
-                                         np.maximum(1e-3,
-                                                    1 - np.sum(x[alf_mask])))
+            alpha_new[arr_mask] = np.minimum(1,
+                                     np.maximum(0, alpha_new[arr_mask]))
+            alpha_new[self.ref_ind] = np.minimum(1,
+                                         np.maximum(0,
+                                                    1 - np.sum(alpha_new[arr_mask])))
+            alpha_new = alpha_new/np.sum(alpha_new)
 
             # Adjust theta and limit it to a positive value
-            x[theta_mask] += dx[theta_mask]
-            x[theta_mask] = np.maximum(0, x[theta_mask])
+            theta_new[arr_mask] = theta_old[arr_mask] + dx[theta_mask]
+            theta_new[arr_mask] = np.maximum(0, theta_new[arr_mask])
 
             # Use technique of Gupta to enforce that theta_i*alpha_i = 0
             # or that theta_i = alpha_i = 1e-10, which will kick one of them
             # to zero on the next iteration.
-            change_ind = (((x[0:self.Np] < 1e-10)
-                           & (x[self.Np:] == 0))
-                          | ((x[0:self.Np] == 0)
-                             & (x[self.Np:] < 1e-10))
-                          | ((x[0:self.Np] < 1e-10)
-                              & (x[self.Np:] < 1e-10)))
-            adjust_ind = np.append(change_ind, change_ind)
-            x[adjust_ind] = 1e-10
-            x[self.Np + self.ref_ind] = 0
-            x[alf_mask] = x[alf_mask]*(x[theta_mask] <= 1e-10)
-            x[theta_mask] = x[theta_mask]*(x[alf_mask] <= 1e-10)
+            alpha_new[alpha_new < 1e-10] = 0
+            theta_new[theta_new < 1e-10] = 0
+            change_ind = (((alpha_new < 1e-10)
+                           & (theta_new == 0))
+                          | ((alpha_new == 0)
+                             & (theta_new < 1e-10))
+                          | ((alpha_new < 1e-10)
+                              & (theta_new < 1e-10)))
+            alpha_new[change_ind] = 1e-10
+            theta_new[change_ind] = 1e-10
 
             k += 1
+            
+            alpha_old = alpha_new.copy()
+            theta_old = theta_new.copy()
 
             if print_iter_info:
                 print('k=', k)
                 print('error=', nres)
                 print('param change=', ndx)
 
-        return x
+        return [alpha_new, theta_new]
 
     def ideal_LV(self, compobjs, T, P):
         if not hasattr(compobjs, '__iter__'):
@@ -660,7 +731,7 @@ class FlashController(object):
             else:
                 K[ii] = (self.ideal_VAq(comp, T, P)
                          / (0.88*self.ideal_IceAq(comp, T, P)))
-        return K
+        return np.abs(K)
 
     def ideal_VHs2(self, compobjs, T, P):
         if not hasattr(compobjs, '__iter__'):

@@ -61,6 +61,14 @@ class HydrateEos(object):
         # Note: 'eos_key' will be defined within sub-class
         for k, v in dict.items(self.Hs.eos[self.eos_key]):
             setattr(self.Hs, k, v)
+        self.R_sm = np.zeros(len(self.Hs.R['sm']))
+        self.z_sm = np.zeros_like(self.R_sm)
+        for ii in range(len(self.z_sm)):
+            self.z_sm[ii] = self.Hs.z['sm'][ii + 1]
+        self.R_lg = np.zeros(len(self.Hs.R['lg']))
+        self.z_lg = np.zeros_like(self.R_lg)
+        for ii in range(len(self.z_lg)):
+            self.z_lg[ii] = self.Hs.z['lg'][ii + 1]
 
 
     def make_constant_mats(self, compobjs, T, P):
@@ -353,39 +361,50 @@ class HvdwpmEos(HydrateEos):
         return delta
 
     def w_func(self, zn, eps_k, r, Rn, sigma, aj):
-        if self.Hs.hydstruc == 's1':
-            w = (2*zn*eps_k*(sigma**12/(Rn**11*r)
-                             * (self.delta_func(10, Rn, aj, r)
-                                + (aj/Rn)*self.delta_func(11, Rn, aj, r))
-                             - sigma**6/(Rn**5*r)
-                             * (self.delta_func(4, Rn, aj, r)
-                                + (aj/Rn)*self.delta_func(5, Rn, aj, r))))
+        w = (2*zn*eps_k*(sigma**12/(Rn**11*r)
+                         * (self.delta_func(10, Rn, aj, r)
+                            + (aj/Rn)*self.delta_func(11, Rn, aj, r))
+                         - sigma**6/(Rn**5*r)
+                         * (self.delta_func(4, Rn, aj, r)
+                            + (aj/Rn)*self.delta_func(5, Rn, aj, r))))
         return w
-
-    def integrand_sm(self, r, R1, R2, z1, z2, eps_k, sigma, aj, T):
-        output = r**2*np.exp((-1.0/T)
-                             * (self.w_func(z1, eps_k, r, R1, sigma, aj)
-                                + self.w_func(z2, eps_k, r, R2, sigma, aj)))
+    
+    def integrand(self, r, R, z, eps_k, sigma, aj, T):
+        integrand_sum = 0
+        for ii in range(len(R)):
+            integrand_sum += self.w_func(z[ii], eps_k, r, R[ii], sigma, aj)
+            
+        output = r**2*np.exp((-1.0/T)*integrand_sum)
         return output
 
-    def integrand_lg(self, r, R1, R2, R3, R4, z1, z2, z3, z4,
-                     eps_k, sigma, aj, T):
-        output = r**2*np.exp((-1.0/T)
-                             * (self.w_func(z1, eps_k, r, R1, sigma, aj)
-                                + self.w_func(z2, eps_k, r, R2, sigma, aj)
-                                + self.w_func(z3, eps_k, r, R3, sigma, aj)
-                                + self.w_func(z4, eps_k, r, R4, sigma, aj)))
-        return output
+#    def integrand_sm(self, r, R1, R2, z1, z2, eps_k, sigma, aj, T):
+#        output = r**2*np.exp((-1.0/T)
+#                             * (self.w_func(z1, eps_k, r, R1, sigma, aj)
+#                                + self.w_func(z2, eps_k, r, R2, sigma, aj)))
+#        return output
+#
+#    def integrand_lg(self, r, R1, R2, R3, R4, z1, z2, z3, z4,
+#                     eps_k, sigma, aj, T):
+#        output = r**2*np.exp((-1.0/T)
+#                             * (self.w_func(z1, eps_k, r, R1, sigma, aj)
+#                                + self.w_func(z2, eps_k, r, R2, sigma, aj)
+#                                + self.w_func(z3, eps_k, r, R3, sigma, aj)
+#                                + self.w_func(z4, eps_k, r, R4, sigma, aj)))
+#        return output
 
     def compute_integral_constants(self, T, P, lattice_sz, kappa):
         Pfactor = self.Hydrate_size(T_0, P, 1.0, kappa, dim='linear')
         a_factor = (lattice_sz/self.Hs.a_norm)*self.lattice_Tfactor*Pfactor
-        self.R1_sm = self.Hs.R['sm'][1]*a_factor
-        self.R2_sm = self.Hs.R['sm'][2]*a_factor
-        self.R1_lg = self.Hs.R['lg'][1]*a_factor
-        self.R2_lg = self.Hs.R['lg'][2]*a_factor
-        self.R3_lg = self.Hs.R['lg'][3]*a_factor
-        self.R4_lg = self.Hs.R['lg'][4]*a_factor
+        for ii in range(len(self.Hs.R['sm'])):
+            self.R_sm[ii] = self.Hs.R['sm'][ii + 1]*a_factor
+        for ii in range(len(self.Hs.R['lg'])):
+            self.R_lg[ii] = self.Hs.R['lg'][ii + 1]*a_factor
+#        self.R1_sm = self.Hs.R['sm'][1]*a_factor
+#        self.R2_sm = self.Hs.R['sm'][2]*a_factor
+#        self.R1_lg = self.Hs.R['lg'][1]*a_factor
+#        self.R2_lg = self.Hs.R['lg'][2]*a_factor
+#        self.R3_lg = self.Hs.R['lg'][3]*a_factor
+#        self.R4_lg = self.Hs.R['lg'][4]*a_factor
         return self
 
     def langmuir_consts(self, compobjs, T, P, lattice_sz, kappa):
@@ -396,28 +415,20 @@ class HvdwpmEos(HydrateEos):
         for ii, comp in enumerate(compobjs):
             if comp.compname != 'h2o':
 
-                small_int = quad(self.integrand_sm,
+                small_int = quad(self.integrand,
                                  0,
-                                 self.R1_sm - comp.HvdWPM['kih']['a'],
-                                 args=(self.R1_sm,
-                                       self.R2_sm,
-                                       self.Hs.z['sm'][1],
-                                       self.Hs.z['sm'][2],
+                                 min(self.R_sm) - comp.HvdWPM['kih']['a'],
+                                 args=(self.R_sm,
+                                       self.z_sm,
                                        comp.HvdWPM['kih']['epsk'],
                                        comp.HvdWPM['kih']['sig'],
                                        comp.HvdWPM['kih']['a'],
                                        T,))
-                large_int = quad(self.integrand_lg,
+                large_int = quad(self.integrand,
                                  0,
-                                 self.R2_lg - comp.HvdWPM['kih']['a'],
-                                 args=(self.R1_lg,
-                                       self.R2_lg,
-                                       self.R3_lg,
-                                       self.R4_lg,
-                                       self.Hs.z['lg'][1],
-                                       self.Hs.z['lg'][2],
-                                       self.Hs.z['lg'][3],
-                                       self.Hs.z['lg'][4],
+                                 min(self.R_lg) - comp.HvdWPM['kih']['a'],
+                                 args=(self.R_lg,
+                                       self.z_lg,
                                        comp.HvdWPM['kih']['epsk'],
                                        comp.HvdWPM['kih']['sig'],
                                        comp.HvdWPM['kih']['a'],
@@ -547,7 +558,20 @@ class HydrateStructure(object):
                                    'b_fit': -68.64,
                                    'alf': {1: 2.029776e-4,
                                            2: 1.851168e-7,
-                                           3: -1.879455e-10}}}
+                                           3: -1.879455e-10},
+                                   'a_norm': 17.1,
+                                   'R': {'sm': {1: 3.748,
+                                                2: 3.845,
+                                                3: 3.956},
+                                         'lg': {1: 4.729,
+                                                2: 4.715,
+                                                3: 4.635}},
+                                   'z': {'sm': {1: 2,
+                                                2: 6,
+                                                3: 12},
+                                         'lg': {1: 4,
+                                                2: 12,
+                                                3: 12}}}}
 
             self.Nm = {'small': 16, 'large': 8}
             self.etam = {'small': 20, 'large': 28}
