@@ -11,20 +11,6 @@ of components and actual component list cannot. The method 'calc' is the
 main calculation of the class, which uses other methods to determine
 the partial fugacity of each component given mole fractions, pressure,
 and temperature.
-
-    Functions
-    ----------
-    pure_water_vol_intgrt :
-        Calculates integrated change in the volume of pure water from P_0 to P
-        at fixed T.
-    pure_water_vol :
-        Calculates volume of pure water at P and T.
-    dielectric_const :
-        Calculates dielectric constant of pure water at P and T.
-    molality :
-        Calculates molality of each solute in the aqueous phase.
-    solute_vol_integrated:
-        Calculates volume of each component as a solute.
 """
 import numpy as np
 

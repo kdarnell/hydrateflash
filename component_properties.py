@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Dec 28 14:52:32 2016
+"""Component properties for all equations of state currently supported
 
-@author: kdarnell
+This file stores all of the empirical and physical properties of the components
+commonly associated with hydrates. In general, these properties are all those
+properties described in the Colorado School of Mines Gibbs Energy Minimization
+documentation. Where ambiguities or discrepancies arose, we used our best
+judgement on actual properties. In some places, we note inconsistencies.
 """
 
 import numpy as np
 
-"""
-Treat each possible guest/water molecule as an object
-and return all of its properties for every EOS.
-"""
 # Constants
 R = 8.3144621  # Gas constant in J/mol-K
 T_0 = 298.15  # Reference temperature in K
@@ -19,35 +18,67 @@ P_0 = 1  # Reference pressure in bar
 
 
 class Component(object):
-    # Possible (lowercase) aliases of each component
-    menu = {'h2o': ('h2o', 'h_2o', 'h20', 'h_20', 'water'),
-             'ch4': ('ch4', 'ch_4', 'c1', 'methane'),
-             'c2h6': ('c2h6', 'c_2h_6', 'c2', 'ethane'),
-             'c3h8': ('c3h8', 'c_3h_8', 'c3', 'propane'),
-             'co2': ('co2', 'co_2', 'c02', 'c0_2', 'carbon dioxide'),
-             'n2': ('n2', 'n_2', 'nitrogen')}
-             
-    def __init__(self, compstr):
-        self.description = ('Intrinsic and empirical properties of '
-                            + compstr)
+    """Class for storing information about each component.
 
-        if compstr.lower() in self.menu['h2o']:
+    Attributes
+    ----------
+    menu : dict
+        Dictionary that maps preferred name of component to
+        possible aliases of that component. Aliases may be used
+        for clarity for specific use cases.
+
+    Methods
+    ----------
+    gibbs_ideal :
+        Gibbs free energy of component in ideal gas state.
+    """
+    menu = dict(h2o=('h2o', 'h_2o', 'h20', 'h_20', 'water'),
+                ch4=('ch4', 'ch_4', 'c1', 'methane'),
+                c2h6=('c2h6', 'c_2h_6', 'c2', 'ethane'),
+                c3h8=('c3h8', 'c_3h_8', 'c3', 'propane'),
+                co2=('co2', 'co_2', 'c02', 'c0_2', 'carbon dioxide',
+                     'carbondioxide'),
+                n2=('n2', 'n_2', 'nitrogen'))
+             
+    def __init__(self, name_of_comp):
+        """Component properties to be used for each EOS
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature at initialization in Kelvin.
+        P : float
+            Pressure at initialization in bar.
+        * : float
+            Various other attributes described below. Some are
+            nested dictionaries that refere to a specific EOS.
+
+        Attributes
+        ----------
+        compname : str
+            Name of component such that the name is a key in menu.
+        """
+
+        if name_of_comp.lower() in self.menu['h2o']:
             self.compname = 'h2o'
-        elif compstr.lower() in self.menu['ch4']:
+        elif name_of_comp.lower() in self.menu['ch4']:
             self.compname = 'ch4'
-        elif compstr.lower() in self.menu['c2h6']:
+        elif name_of_comp.lower() in self.menu['c2h6']:
             self.compname = 'c2h6'
-        elif compstr.lower() in self.menu['c3h8']:
+        elif name_of_comp.lower() in self.menu['c3h8']:
             self.compname = 'c3h8'
-        elif compstr.lower() in self.menu['co2']:
+        elif name_of_comp.lower() in self.menu['co2']:
             self.compname = 'co2'
-        elif compstr.lower() in self.menu['n2']:
+        elif name_of_comp.lower() in self.menu['n2']:
             self.compname = 'n2'
         else:
-            raise ValueError(compstr + ' is not a supported component!!'
-                             + '\nConsult "Component.menu" '
-                             + 'attribute for \nvalid components and '
-                             + 'associated call strings.')
+            raise ValueError("""{0} + is not a supported component!!
+                             \nConsult 'Component.menu'
+                             attribute for \nvalid components and
+                             associated call strings.""".format(name_of_comp))
 
         """
         Set all relevant properties for each component.
@@ -528,7 +559,6 @@ class Component(object):
                                   'a10': 0.0,
                                   'a11': 0.0,
                                   'a12': 0.0,
-                                  'a11': 0.0,
                                   'a13': 0.0,
                                   'a14': 0.0,
                                   'a15': 192.39,
@@ -537,11 +567,23 @@ class Component(object):
                                   'a18': 1.1e-7,
                                   'a19': 0.0}}
 
-    # Function for each component to retrieve gibbs free energy
-    # in ideal gas state.
     def gibbs_ideal(self, T, P):
+        """Gibbs free energy in ideal gas state.
+
+         Parameters
+         ----------
+         T : float
+            Temperature in Kelvin.
+         P : float
+            Pressure in bar.
+
+         Returns
+         ----------
+         g_io_RT : float
+            Gibbs free energy of component in ideal gas state.
+        """
         g_io_RT = (
-            self.g_io/(R*T_0) 
+            self.g_io/(R*T_0)
             - (12*T*self.h_io - 12*T_0*self.h_io + 12*T_0**2*self.cp['a0']
                + 6*T_0**3*self.cp['a1'] + 4*T_0**4*self.cp['a2']
                + 3*T_0**5*self.cp['a3'] - 12*T*T_0*self.cp['a0']

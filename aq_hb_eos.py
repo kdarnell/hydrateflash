@@ -80,15 +80,15 @@ a43 = 1.77978e-17
 """The above global variables may be used throughout the calculation."""
 
 
-def pure_water_vol_intgrt(P, T):
+def pure_water_vol_intgrt(T, P):
     """Volume of pure water integrate wrt pressure.
 
     Parameters
     ----------
-    P : float
-        Pressure in bar.
     T : float
         Temperature in Kelvin.
+    P : float
+        Pressure in bar.
 
     Returns
     ----------
@@ -101,15 +101,15 @@ def pure_water_vol_intgrt(P, T):
            + (a13 * P + a23 * P ** 2 / 2 + a33 * P ** 3 / 3 + a43 * P ** 4 / 4) * T ** 3)
     return v_w
 
-def pure_water_vol(P, T):
+def pure_water_vol(T, P):
     """Volume of pure water.
 
     Parameters
     ----------
-    P : float
-        Pressure in bar.
     T : float
         Temperature in Kelvin.
+    P : float
+        Pressure in bar.
 
     Returns
     ----------
@@ -128,10 +128,10 @@ def dielectric_const(T, P):
 
     Parameters
     ----------
-    P : float
-        Pressure in bar.
     T : float
         Temperature in Kelvin.
+    P : float
+        Pressure in bar.
 
     Returns
     ----------
@@ -332,8 +332,8 @@ class HegBromEos(object):
                        + 2 * T ** 3 * T_0 * cp_a2 - 4 * T * T_0 ** 4 * cp_a3
                        + T ** 4 * T_0 * cp_a3 + 12 * T * T_0 * cp_a0 * np.log(T)
                        - 12 * T * T_0 * cp_a0 * np.log(T_0)) / (12 * R * T * T_0)
-                    + (pure_water_vol_intgrt(P, T)
-                       - pure_water_vol_intgrt(P_0, T)) * 1e-1 / (R * T)
+                    + (pure_water_vol_intgrt(T, P)
+                       - pure_water_vol_intgrt(T, P_0)) * 1e-1 / (R * T)
                 )
 
     def fugacity(self, comps, x):
