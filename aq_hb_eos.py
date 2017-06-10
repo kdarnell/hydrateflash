@@ -6,7 +6,7 @@ This file implements an aqueous equation of state (EOS) named the
 Helgeson EOS with Bromley activity model. It is specifically
 the version of the that EOS that is described in Jager et. al. (2003),
 which is linked in the readme.md file. The file consists of a single
-class, 'HegBromEOS' that will take as arguments a list of components
+class, 'HegBromEos' that will take as arguments a list of components
 and a pressure and a temperature. Pressure and temperature can be
 modified after an instance of HegBromEos is created; however, the number
 of components and actual component list cannot. The method 'calc' is the
@@ -126,18 +126,18 @@ def pure_water_vol(P, T):
 def dielectric_const(T, P):
     """Dielectric constant of pure water.
 
-        Parameters
-        ----------
-        P : float
-            Pressure in bar.
-        T : float
-            Temperature in Kelvin.
+    Parameters
+    ----------
+    P : float
+        Pressure in bar.
+    T : float
+        Temperature in Kelvin.
 
-        Returns
-        ----------
-        eps : float
-            Dielectric constant of water (no units) .
-        """
+    Returns
+    ----------
+    eps : float
+        Dielectric constant of water (no units) .
+    """
     eps = ((s10 + s20 * P + s30 * P ** 2)
            + (s11 + s21 * P + s31 * P ** 2) * T
            + (s12 + s22 * P + s32 * P ** 2) * T ** 2)
@@ -225,13 +225,17 @@ class HegBromEos(object):
         Attributes
         ----------
         water_ind : int
-            Index of 'h2o' in all lists.
+            Index of for water component in all lists.
         comps : list
-            List of 'Component' classes passed into 'HegEosBrom'.
+            List of 'Component' classes passed into 'HegBromEos'.
         comp_names : list
             List of components names.
         num_comps : int
             Number of components.
+        T : float
+            Temperature at initialization in Kelvin.
+        P : float
+            Pressure at initialization in bar.
         g_io_vec : numpy array
             Pre-allocated array for gibbs energy of each component
             in ideal gas state.
@@ -256,6 +260,8 @@ class HegBromEos(object):
         self.comps = comps
         self.comp_names = [x.compname for x in comps]
         self.num_comps = len(comps)
+        self.T = T
+        self.P = P
         self.g_io_vec = np.zeros(self.num_comps)
         self.molality_vec = np.zeros(self.num_comps)
         self.activity_vec = np.zeros(self.num_comps)
@@ -265,6 +271,16 @@ class HegBromEos(object):
 
     def make_constant_mats(self, comps, T, P):
         """Portion of calculation that only depends on P and T.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature at initialization in Kelvin.
+        P : float
+            Pressure at initialization in bar.
 
         Notes
         ----------

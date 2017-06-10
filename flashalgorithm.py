@@ -385,8 +385,8 @@ class FlashController(object):
     # And change calc_x so that I make use of the np.newaxis utility!!
     def calc_x(self, z, alpha, theta, K, T, P):
         # z, alpha, and theta are vectors.
-        # z is length Nc, alpha and theta are length Np
-        # K is matrix of size Nc x Np
+        # z is length num_comps, alpha and theta are length Np
+        # K is matrix of size num_comps x Np
         
         if type(z) != np.ndarray:
             z = np.asarray(z)
@@ -403,8 +403,8 @@ class FlashController(object):
                 axis=1)
         x_mat = x_numerator/x_denominator[:, np.newaxis]
         
-#        x_mat = np.zeros([self.Nc, self.Np])
-#        x_numerator = np.zeros([self.Nc, self.Np])
+#        x_mat = np.zeros([self.num_comps, self.Np])
+#        x_numerator = np.zeros([self.num_comps, self.Np])
 #        for ii, comp in enumerate(self.comps):
 #            x_denominator = 1.0
 #            for kk, phase in enumerate(self.phases):
@@ -437,8 +437,8 @@ class FlashController(object):
             K = np.asarray(K)
             
         # z, alpha, and theta are vectors.
-        # z is length Nc, alpha and theta are length Np
-        # K is matrix of size Nc x Np
+        # z is length num_comps, alpha and theta are length Np
+        # K is matrix of size num_comps x Np
 
         # Making use of np's broadcasting capabilities to implicitly
         # reshape and 'tile' matrices.
@@ -453,8 +453,8 @@ class FlashController(object):
 
     def Jacobian(self, z, alpha, theta, K):
         # z, alpha, and theta are vectors.
-        # z is length Nc, alpha and theta are length Np
-        # K is matrix of size Nc x Np
+        # z is length num_comps, alpha and theta are length Np
+        # K is matrix of size num_comps x Np
         
         if type(z) != np.ndarray:
             z = np.asarray(z)
@@ -519,7 +519,7 @@ class FlashController(object):
         return np.real(np.abs(K_mat))
 
     # x_mat will be a matrix of the compositions in each phase.
-    # It should be Nc x Np
+    # It should be num_comps x Np
     def calc_fugacity(self, T, P, x_mat):
         fug_out = np.zeros_like(x_mat)
         for ii, phase in enumerate(self.phases):

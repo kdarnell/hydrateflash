@@ -1,145 +1,299 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Fri Dec 30 16:40:41 2016
+"""Vapor and liquid hydrocarbon  Soave-Redlich-Kwong Equation of State
 
-@author: kdarnell
+This file implements a vapor/liquid hydrocarbon equation of state (EOS)
+named Soave-Redlich-Kwong (SRK). The file consists of a single
+class, 'SrkEos' that will take as arguments a list of components
+and a pressure and a temperature. Pressure and temperature can be
+modified after an instance of SrkEos is created; however, the number
+of components and actual component list cannot. The method 'calc' is the
+main calculation of the class, which uses other methods to determine
+the partial fugacity of each component given mole fractions, pressure,
+and temperature.
+
+    Functions
+    ----------
+    pure_water_vol_intgrt :
+        Calculates integrated change in the volume of pure water from P_0 to P
+        at fixed T.
+    pure_water_vol :
+        Calculates volume of pure water at P and T.
+    dielectric_const :
+        Calculates dielectric constant of pure water at P and T.
+    molality :
+        Calculates molality of each solute in the aqueous phase.
+    solute_vol_integrated:
+        Calculates volume of each component as a solute.
 """
 import numpy as np
 
-"""
-    This is an equation of state (EOS) for vapor and liquid hydrocarbon phases
-    using the Soave-Redlich-Kwong (SRK) cubic equation.
-    At present (early 2017), there is no correction for the liquid volume.
-"""
+
 R = 83.144621  # universal gas constant (compatible with bar)
 # Possible aliases for describing the particular phase requested.
-liquidalias = ('liquidhc', 'liqhc', 'lhc')
-vaporalias = ('vapor', 'vap', 'v', 'gas', 'g')
+liquid_alias = ('liquidhc', 'liqhc', 'lhc')
+vapor_alias = ('vapor', 'vap', 'v', 'gas', 'g')
 
 
 class SrkEos(object):
-    def __init__(self, compobjs, T, P):
-        self.description = (
-            'Object for calculating fugacity of mixtures of gases' +
-            'using the Soave-Relich-Kwong (SRK) cubic equation of state.'
-        )
-        # Set up arrays and matrices for future calculation
-        self.Nc = len(compobjs)
-        self.S1_vec = np.zeros(self.Nc)
-        self.kij_mat = np.zeros([self.Nc, self.Nc])
-        self.a_vec = np.zeros(self.Nc)
-        self.b_vec = np.zeros(self.Nc)
-        self.a_mat = np.zeros([self.Nc, self.Nc])
-        self.alf_vec = np.zeros(self.Nc)
-        self.Tr_vec = np.zeros(self.Nc)
-        self.Pr_vec = np.zeros(self.Nc)
-        self.compobjs = compobjs
+    """The main class for this EOS that perform various calculations.
 
-        # Assuming pressure and temperature won't change, compute terms that
-        # are not functions of compostion.
-        self.make_constant_mats(compobjs, T, P)
+    Methods
+    ----------
+    make_constant_mats :
+        Performs calculations that only depend on pressure and temperature.
+    fugacity :
+        Calculates fugacity of each component in the aqueous phase.
+    calc:
+        Main calculation for aqueous phase EOS.
+    """
+    def __init__(self, comps, T, P):
+        """Vapor and liquid hydrocarbon EOS object for fugacity calculations.
 
-    # Define all constants wrt to composition.
-    def make_constant_mats(self, compobjs, T, P):
-        for ii, comp in enumerate(compobjs):
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature at initialization in Kelvin.
+        P : float
+            Pressure at initialization in bar.
+
+        Attributes
+        ----------
+        comps : list
+            List of 'Component' classes passed into 'SrkEos'.
+        num_comps : int
+            Number of components.
+        T : float
+            Temperature at initialization in Kelvin.
+        P : float
+            Pressure at initialization in bar.
+        s1_vec : numpy array
+            Pre-allocated array for variable 's1'.
+        kij_vec : numpy array
+            Pre-allocated array for interaction parameter between
+            component 'i' and component 'j'.
+        a_vec : numpy array
+            Pre-allocated array for variable 'a'.
+        b_vec : numpy array
+            Pre-allocated array for variable 'b'.
+        a_mat : numpy array
+            Pre-allocated array for variable 'a' derived from a_vec.
+        alf_vec : numpy array
+            Pre-allocated array for variable 'alpha'.
+        Tr_vec : numpy array
+            Pre-allocated array reduced temperature.
+        Pr_vec : numpy array
+            Pre-allocated array reduced pressure.
+        A : float
+            Constant used in the calculation of 'Z'.
+        B : float
+            Constant used in the calculation of 'Z'.
+        Z : float
+            Root of the cubic equation for molar volume.
+        a_frac : numpy array
+            Fraction of 'a' parameter for each component.
+        b_frac : numpy array
+            Fraction of 'b' parameter for each component.
+        a_x_sum : numpy array
+            Sum of the a_mat with the molar fraction vector.
+        """
+        self.comps = comps
+        self.num_comps = len(comps)
+        self.T = T
+        self.P = P
+        self.s1_vec = np.zeros(self.num_comps)
+        self.kij_mat = np.zeros([self.num_comps, self.num_comps])
+        self.a_vec = np.zeros(self.num_comps)
+        self.b_vec = np.zeros(self.num_comps)
+        self.a_mat = np.zeros([self.num_comps, self.num_comps])
+        self.alf_vec = np.zeros(self.num_comps)
+        self.Tr_vec = np.zeros(self.num_comps)
+        self.Pr_vec = np.zeros(self.num_comps)
+        self.A = None
+        self.B = None
+        self.Z = None
+        self.a_x_sum = None
+        self.a_frac = np.zeros(self.num_comps)
+        self.b_frac = np.zeros(self.num_comps)
+        self.make_constant_mats(comps, T, P)
+
+    def make_constant_mats(self, comps, T, P):
+        """Portion of calculation that only depends on P and T.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature at initialization in Kelvin.
+        P : float
+            Pressure at initialization in bar.
+
+        Notes
+        ----------
+        Calculation assumes that pressure and temperature won't change
+        upon successive iteration of EOS. Instead, the calculation will
+        adjust molar fractions of each component at a fixed T and P.
+        However, if T and P do change then, it will recalculate these
+        constants.
+        """
+        for ii, comp in enumerate(comps):
             self.T = T
             self.P = P
             self.Tr_vec[ii] = T/comp.Tc
             self.Pr_vec[ii] = P/comp.Pc
-            self.S1_vec[ii] = (0.48508 + 1.55171*comp.SRK['omega']
-                               - 0.15613*comp.SRK['omega']**2)
+            self.s1_vec[ii] = (0.48508 + 1.55171 * comp.SRK['omega']
+                               - 0.15613 * comp.SRK['omega'] ** 2)
             self.alf_vec[ii] = (
-                (1.0 + self.S1_vec[ii]*(1.0 - np.sqrt(self.Tr_vec[ii]))
-                 + comp.SRK['S2']*(1.0 - np.sqrt(self.Tr_vec[ii]))
+                (1.0 + self.s1_vec[ii] * (1.0 - np.sqrt(self.Tr_vec[ii]))
+                 + comp.SRK['S2'] * (1.0 - np.sqrt(self.Tr_vec[ii]))
                  / np.sqrt(self.Tr_vec[ii]))**2
             )
             self.a_vec[ii] = 0.42747*R**2*comp.Tc**2 / comp.Pc
             self.b_vec[ii] = 0.08664*R*comp.Tc / comp.Pc
 
-        for ii, compouter in enumerate(compobjs):
-            for jj, compinner in enumerate(compobjs):
-                self.kij_mat[ii, jj] = compouter.SRK['kij'][compinner.compname]
+        for ii, comp_outer in enumerate(comps):
+            for jj, comp_inner in enumerate(comps):
+                self.kij_mat[ii, jj] = comp_outer.SRK['kij'][comp_inner.compname]
                 self.a_mat[ii, jj] = (
                     (1 - self.kij_mat[ii, jj])
-                     * np.sqrt(self.alf_vec[ii]*self.a_vec[ii]
-                     * self.alf_vec[jj]*self.a_vec[jj])
+                    * np.sqrt(self.alf_vec[ii]*self.a_vec[ii]
+                    * self.alf_vec[jj]*self.a_vec[jj])
                 )
 
-    # Weighted-sum of b
     def b_tot(self, x):
-        b = np.sum(self.b_vec*x)
-        return b
+        """Molar fraction weighted sum of 'b' parameter.
 
-    # Weighted-sum of a
+        Parameters
+        ----------
+        x : numpy array
+            Molar fraction of each component.
+
+        Returns
+        ----------
+        float
+            Molar fraction weighted sum of 'b' parameter.
+        """
+        return np.sum(self.b_vec*x)
+
     def a_tot(self, x):
-        a = 0.0
-        for ii in range(len(x)):
-            for jj in range(len(x)):
-                a += x[ii]*x[jj]*self.a_mat[ii, jj]
+        """Molar fraction weighted sum of 'a' parameter.
+
+        Parameters
+        ----------
+        x : numpy array
+            Molar fraction of each component.
+
+        Returns
+        ----------
+        float
+            Molar fraction weighted sum of 'a' parameter.
+        """
+        a = np.sum([x[ii]*x[jj]*self.a_mat[ii, jj]
+                for ii in range(len(x)) for jj in range(len(x))])
         return a
 
-    # Function for fugacity calculation in terms of pre-computed values,
-    # composition, and the Z-factor calculated in "calc".
-    def fugacity(self, x, Z):
+    def fugacity(self, x):
+        """Fugacity of each component in hydrocarbon phase for molar fractions 'x'.
+
+        Parameters
+        ----------
+        x : list, numpy array
+            Molar fractions of each components indexed in the same order
+            as comps.
+
+        Returns
+        ----------
+        fug : numpy array
+            Fugacity of each component in aqueous phase.
+        """
         fug = (x*self.P
-               * np.exp((self.b_frac)*(Z - 1.0) - np.log(Z - self.B)
+               * np.exp(self.b_frac*(self.Z - 1.0) - np.log(self.Z - self.B)
                         - self.A/self.B*(2.0*self.a_frac - self.b_frac)
-                        * np.log(1.0 + self.B/Z))
+                        * np.log(1.0 + self.B/self.Z))
                )
         return fug
         
-    def volume(self, Z):
-        v = Z*R*self.T/self.P
+    @property
+    def volume(self):
+        """Volume of phase.
+
+        Returns
+        ----------
+        v : float
+            Volume of phase in cm^3.
+        """
+        v = self.Z*R*self.T/self.P
         return v
         
-#    def enthalpy(self, Z):
-        
+# TODO    Write this function!
+# def enthalpy(self, Z):
 
-    # Main calculation that will call "fugacity". Option to specify phase.
-    def calc(self, compobjs, T, P, x, phase='general'):
-        if len(x) != len(compobjs):
-            if len(x) > len(compobjs):
-                raise RuntimeError('Length of mole fraction vector "x" '
-                                   + 'exceeds number of components!')
+    def calc(self, comps, T, P, x, phase='general'):
+        """Main calculation for the EOS which returns array of fugacities
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' classes.
+        T : float
+            Temperature in Kelvin.
+        P : float
+            Pressure in bar.
+        x : list, numpy array
+            Molar fractions of each components indexed in the same order
+            as comps.
+        phase : str, optional
+            Specific phase for the calculation (liquid or vapor). This dictates
+            which of the roots are return by the 'Z' calculation.
+
+        Returns
+        ----------
+        fug : numpy array
+            Fugacity of each component in aqueous phase.
+        """
+        if len(x) != len(comps):
+            if len(x) > len(comps):
+                raise RuntimeError("""Length of mole fraction vector 'x'
+                                   exceeds number of components!""")
             elif not x:
-                raise RuntimeError('Mole fraction vector "x" is empty!')
+                raise RuntimeError("Mole fraction vector 'x' is empty!")
             else:
-                raise RuntimeError('Mole fraction vector "x" contains less '
-                                   +'values than component length!')
+                raise RuntimeError(""""Mole fraction vector "x" contains less
+                                   values than component length!""")
         
-        # Raise flag if components change.
-        if compobjs != self.compobjs:
-            print('Warning: Action not supported.' +
-                  '\nComponents have changed. ' +
-                  '\nPlease create a new fugacity object.')
+        if comps != self.comps:
+            print("""Warning: Action not supported.
+                  \nComponents have changed.
+                  \nPlease create a new fugacity object.""")
             return None
         else:
-            # Re-calculate constants if pressure or temperature changes.
             if self.T != T or self.P != P:
-                self.make_constant_mats(compobjs, T, P)
+                self.make_constant_mats(comps, T, P)
 
+            self.b_frac = self.b_vec / self.b_tot(x)
+            self.a_x_sum = np.matmul(self.a_mat, x)
+            self.a_frac = self.a_x_sum / self.a_tot(x)
             self.A = self.a_tot(x)*P / (R**2 * T**2)
             self.B = self.b_tot(x)*P / (R*T)
-            coeffs = [1, -1, self.A - self.B - self.B**2, -(self.A*self.B)]
-            Z = np.roots(coeffs)
-            self.b_frac = self.b_vec/self.b_tot(x)
-            self.a_x_sum = np.matmul(self.a_mat, x)
-            self.a_frac = self.a_x_sum/self.a_tot(x)
+            coefs = [1, -1, self.A - self.B - self.B**2, -(self.A*self.B)]
+            Z = np.roots(coefs)
 
             if np.isreal(Z).all():
-                if phase.lower() in liquidalias:
+                if phase.lower() in liquid_alias:
                     self.Z = Z.min()
-                elif phase.lower() in vaporalias or phase.lower() == 'general':
+                elif phase.lower() in vapor_alias or phase.lower() == 'general':
                     self.Z = Z.max()
             elif np.isreal(Z).any():
-                # There should actually only be one real number if any
-                # imaginary roots exists, so the np.max() is redundant.
                 self.Z = np.real(np.max(Z[np.isreal(Z)]))
             else:
-                fug = np.nan
-                print('Something is wrong.' +
-                      '\nSolver returned imaginary numbers')
+                print("""Something is wrong.
+                      \nSolver returned imaginary numbers""")
+                return None
                 
-            fug = self.fugacity(x, self.Z)
+            fug = self.fugacity(x)
         return fug
