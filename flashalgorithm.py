@@ -16,9 +16,9 @@ import time
 
 # Not sure if I want these classes in this file
 import component_properties as cp
-import AqHB_EOS as aq
-import HvdWPM_EOS as h
-import SRK_EOS as hc
+import aq_hb_eos as aq
+import h_vdwpm_eos as h
+import vlhc_srk_EOS as hc
 
 class FlashController(object):
     # This the possible aliases for phases.
@@ -405,7 +405,7 @@ class FlashController(object):
         
 #        x_mat = np.zeros([self.Nc, self.Np])
 #        x_numerator = np.zeros([self.Nc, self.Np])
-#        for ii, comp in enumerate(self.compobjs):
+#        for ii, comp in enumerate(self.comps):
 #            x_denominator = 1.0
 #            for kk, phase in enumerate(self.phases):
 #                if phase not in ('s1', 's2'):
