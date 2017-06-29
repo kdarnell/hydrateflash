@@ -115,9 +115,9 @@ class SrkEos(object):
             List of components as 'Component' objects created with
             'component_properties.py'.
         T : float
-            Temperature at initialization in Kelvin.
+            Temperature in Kelvin.
         P : float
-            Pressure at initialization in bar.
+            Pressure in bar.
 
         Notes
         ----------

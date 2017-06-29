@@ -1,64 +1,153 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Jan  4 21:30:38 2017
+"""Hydrate Modified-van der Waals Platteeuw Equation of State
 
-@author: kdarnell
+This file implements a hydrate equation of state (EOS)named
+Modified- van der Waals Platteeuw after Ballard and Sloan (2002).
+The file consists of a generic hydrate class 'Hydrate EOS' and the
+class, 'HvdwpmEos', which incorporates all information for the
+Ballard and Sloan EOS. Other hydrate EOS's will share similar features,
+since they are all derived from the original van der Waals Platteeuw EOS,
+so the generic 'HydrateEos' could be ported to another EOS. The classes will
+take in as arguments a list of components, pressure, temperature, and
+hydrate structure. Pressure and temperature can be modified after an
+instance of SrkEos is created; however, the number of components, the
+actual component list, and the hydrate structure cannot. The method 'calc'
+is the main calculation of the class, which uses other methods to determine
+the partial fugacity of each component given mole fractions, pressure,
+temperature, and structure.
 """
 import numpy as np
 from scipy.integrate import quad
 
-"""
-    This is an equation of state (EOS) for water in the hydrate phase
-    in the presence of multiple gases using the Ballard-modified
-    van der Waals Platteeuw EOS.
-"""
 # Constants
-R = 8.3144621  # universal gas constant
-T_0 = 298.15
-P_0 = 1.0
-k = 1.3806488e-23
+R = 8.3144621  # universal gas constant in J/mol-K
+T_0 = 298.15  # reference temperature in K
+P_0 = 1.0  # reference pressure in bar
+k = 1.3806488e-23  # Boltzmann's constant in J/K
 
 
-# Parent class for a series of slightly different equations of state
-# --however, they will all be based on van der Waals-Platteeuw
-# The parent class is desigend to reduce redundancy. Some functions
-# will modified in the child class.
 class HydrateEos(object):
-    def __init__(self, compobjs, T, P, structure='s1'):
-        self.description = (
-            'Object for calculating fugacity of water in hydrate' +
-            ' with a mixture of gases.'
-        )
-        # Set up arrays and matrices for future calculation
-        self.compnames = [c.compname for c in compobjs]
-        try:
-            self.h2oind = [ii for ii, name in enumerate(self.compnames)
-                           if name == 'h2o'][0]
-        except IndexError:
-            raise RuntimeError("""
-                        Hydrate EOS requires water to be present!'\n
-                        Please provide water in your component list.'""")
+    """The parent class for this EOS that perform various calculations.
 
-        self.Nc = len(compobjs)
-        self.compobjs = compobjs
+        Methods
+        ----------
+        make_constant_mats :
+            Performs calculations that only depend on pressure and temperature.
+        langmuir_consts :
+            Performs the langmuir constant calculation.
+        calc_langmuir :
+            Performs that calculates cage occupancies from langmuir constants.
+        delta_mu_func :
+            Calculates chemical potential difference according to van der Waals.
+        fugacity :
+            Calculates fugacity of only water in the hydrate phase.
+        calc:
+            Main calculation for hydrate phase EOS.
+        """
+    def __init__(self, comps, T, P, structure='s1'):
+        """Hydrate EOS object for fugacity calculations.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature at initialization in Kelvin.
+        P : float
+            Pressure at initialization in bar.
+        structure : str
+            Structure of hydrate ('s1' or 's2').
+
+        Attributes
+        ----------
+        water_ind : int
+            Index of for water component in all lists.
+        comps : list
+            List of 'Component' classes passed into 'HydrateEos'.
+        comp_names : list
+            List of components names.
+        num_comps : int
+            Number of components.
+        T : float
+            Temperature at initialization in Kelvin.
+        P : float
+            Pressure at initialization in bar.
+        gwbeta_RT_cons : numpy array
+            Pre-allocated array for gibbs energy of water
+            in empty standard state.
+        volume_int : numpy array
+            Pre-allocated array for pressure-integrated volume
+            of hydrate.
+        volume : numpy array
+            Pre-allocated array for volume of hydrate.
+        activity : numpy array
+            Pre-allocated array for activity of water in hydrate.
+        delta_mu_RT : numpy array
+            Pre-allocated array for chemical potential difference
+            of water between aqueous and empty hydrate phases.
+        gw0_RT : numpy array
+            Pre-allocated array for gibbs energy of water in ideal
+            gas state.
+        Hs : dict
+            Dictionary of structure-specific properties of hydrate.
+
+            Keys and values
+            ----------
+            R_sm : numpy array
+                Pre-allocated array for radii of each shell
+                in the small cages.
+            z_sm : numpy array
+                Pre-allocated array for number of water molecules
+                in each shell in the large cages.
+            R_lg : numpy array
+                Pre-allocated array for radii of each shell
+                in the small cages.
+            z_lg : numpy array
+                Pre-allocated array for number of water molecules
+                in each shell in the large cages.
+        alt_fug_ve : numpy array
+            Pre-allocated array for fugacity of non-water components
+            in phase at equilibrium with hydrate.
+        Y_small : numpy array
+            Pre-allocated array for cage occupancy of large cages for
+            each non-water component.
+        Y_large : numpy array
+            Pre-allocated array for cage occupancy of large cages for
+            each non-water component.
+        fug : numpy array
+            Pre-allocated array for fugacity of water in hydrate.
+
+        Notes
+        ----------
+        'Hs' will populate based on the 'eos_key' defined in the child class.
+        This attribute will store the structure specific information that is
+        stored in a class called 'HydrateStructure'.
+        """
+        try:
+            self.water_ind = [ii for ii, x in enumerate(comps)
+                              if x.compname == 'h2o'][0]
+        except ValueError:
+            raise RuntimeError(
+                """Hydrate EOS requires water to be present!
+                \nPlease provide water in your component list.""")
+        self.comps = comps
+        self.comp_names = [x.compname for x in comps]
+        self.num_comps = len(comps)
+        self.T = T
+        self.P = P
         self.gwbeta_RT_cons = np.zeros(1)
         self.volume_int = np.zeros(1)
         self.volume = np.zeros(1)
         self.activity = np.zeros(1)
         self.delta_mu_RT = np.zeros(1)
         self.gw0_RT = np.zeros(1)
-
-
         self.Hs = HydrateStructure(structure)
-        self.alt_fug_vec = np.zeros(self.Nc)
-        self.Y_small = np.zeros(self.Nc)
-        self.Y_large = np.zeros(self.Nc)
+        self.alt_fug_vec = np.zeros(self.num_comps)
+        self.Y_small = np.zeros(self.num_comps)
+        self.Y_large = np.zeros(self.num_comps)
         self.fug = 0
-
-        # Transfer everything from the eos-specific dictionary to
-        # the Hs object for use in the rest of the class
-        # Note: 'eos_key' will be defined within sub-class
         for k, v in dict.items(self.Hs.eos[self.eos_key]):
             setattr(self.Hs, k, v)
         self.R_sm = np.zeros(len(self.Hs.R['sm']))
@@ -71,56 +160,172 @@ class HydrateEos(object):
             self.z_lg[ii] = self.Hs.z['lg'][ii + 1]
 
 
-    def make_constant_mats(self, compobjs, T, P):
-        # Create all values that are invariant wrt T and P
+    def make_constant_mats(self, comps, T, P):
+        """Portion of calculation that only depends on P and T.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature in Kelvin.
+        P : float
+            Pressure in bar.
+
+        Notes
+        ----------
+        Calculation assumes that pressure and temperature won't change
+        upon successive iteration of EOS. Instead, the calculation will
+        adjust molar fractions of each component at a fixed T and P.
+        However, if T and P do change then, it will recalculate these
+        constants.
+        """
         self.T = T
         self.P = P
-        self.gw0_RT = compobjs[self.h2oind].gibbs_ideal(T, P)
-        # Add additional stuff for specific EOS's here
-        return self
+        self.gw0_RT = comps[self.water_ind].gibbs_ideal(T, P)
 
     def langmuir_consts(self, compobjs, T, P):
-        # Each child EOS will have a different way of calculating this.
-        C_small = np.zeros(self.Nc)
-        C_large = np.zeros(self.Nc)
+        """Calculation of langmuir constants.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature in Kelvin.
+        P : float
+            Pressure in bar.
+
+        Returns
+        ----------
+        C_small : numpy array
+            Langmuir constants for component in small cages.
+        C_large : numpy array
+            Langmuir constants for component in large cages.
+        """
+        C_small = np.zeros(self.num_comps)
+        C_large = np.zeros(self.num_comps)
         return C_small, C_large
 
     def calc_langmuir(self, C, eq_fug):
-        Y = np.zeros(self.Nc)
-        denominator = (1.0 + np.sum(C*eq_fug))
-        for ii, comp in enumerate(self.compobjs):
+        """Calculation of langmuir constants.
+
+        Parameters
+        ----------
+        C : numpy array
+            Array of langmuir constants.
+        eq_fug : numpy array
+            Fugacity of each component for the phase that is in
+            equilibrium with hydrate.
+
+        Returns
+        ----------
+        Y : numpy array
+            Fractional occupancy of each component in unspecified
+            cage type.
+        """
+        #TODO: Check to see if this can modified since C[water_ind] should be zero!
+        Y = np.zeros(self.num_comps)
+        denominator = (1.0 + np.sum(C * eq_fug))
+        for ii, comp in enumerate(self.comps):
             if comp.compname != 'h2o':
-                Y[ii] = C[ii]*eq_fug[ii]/denominator
+                Y[ii] = C[ii] * eq_fug[ii] / denominator
             else:
                 Y[ii] = 0
         return Y
 
-    def delta_mu_func(self, compobjs, T, P):
+    def delta_mu_func(self, comps, T, P):
+        """Calculation of chemical potential difference of water in hydrate.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature at initialization in Kelvin.
+        P : float
+            Pressure at initialization in bar.
+
+        Returns
+        ----------
+        delta_mu : float
+            Chemical potential difference of water between aqueous phases
+            and empty standard hydrate.
+        """
         delta_mu = (
             self.Hs.Nm['small']*np.log(1-np.sum(self.Y_small))
             + self.Hs.Nm['large']*np.log(1-np.sum(self.Y_large))
         )/self.Hs.Num_h2o
         return delta_mu
 
-    def fugacity_calc(self, compobjs, T, P, x, alt_fug):
+    def fugacity(self, comps, T, P, x, eq_fug):
+        """Calculation of fugacity of water in hydrate.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature in Kelvin.
+        P : float
+            Pressure in bar.
+        x : list, numpy array
+            Dummy list of molar fraction in hydrate phase to maintain
+            argument parallelism with other EOS's.
+        eq_fug : numpy array
+            Equilibrium fugacity of each non-water component that will
+            be in equilibrium within some other phase.
+        """
         pass
 
-    def calc(self, compobjs, T, P, x, eq_fug):
-        # x is a dummy variable in this EOS! Inserted here for parallism with
-        # other EOS'
+    def calc(self, comps, T, P, x, eq_fug):
+        """Main calculation for the EOS which returns array of fugacities
 
-        # Raise flag if components change.
-        if compobjs != self.compobjs:
-            print("""Warning: Action not supported.\n
-                     Components have changed.\n
-                     Please create a new fugacity object.""")
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature in Kelvin.
+        P : float
+            Pressure in bar.
+        x : list, numpy array
+            Dummy list of molar fraction in hydrate phase to maintain
+            argument parallelism with other EOS's.
+        eq_fug : numpy array
+            Equilibrium fugacity of each non-water component that will
+            be in equilibrium within some other phase.
+
+        Returns
+        ----------
+        fug : numpy array
+            Fugacity of water in aqueous phase.
+        """
+        if len(x) != len(comps):
+            if len(x) > len(comps):
+                raise RuntimeError("""Length of mole fraction vector 'x'
+                                   exceeds number of components!""")
+            elif not x:
+                raise RuntimeError("Mole fraction vector 'x' is empty!")
+            else:
+                raise RuntimeError("""Mole fraction vector 'x' contains less
+                                   values than component length!""")
+        if comps != self.comps:
+            print("""Warning: Action not supported.
+                  \n Number of_components have changed.
+                  \n Please create a new fugacity object.""")
             return None
         else:
             # Re-calculate constants if pressure or temperature changes.
             if self.T != T or self.P != P:
                 self.make_constant_mats(compobjs, T, P)
 
-        fug = self.fugacity_calc(compobjs, T, P, x, eq_fug)
+            fug = self.fugacity(compobjs, T, P, x, eq_fug)
         return fug
 
 
@@ -131,26 +336,26 @@ class HvdwpmEos(HydrateEos):
           'a3': 63.5104e-9*R}
     eos_key = 'hvdwpm'
 
-    def __init__(self, compobjs, T, P, structure='s1'):
+    def __init__(self, comps, T, P, structure='s1'):
         # 'stdstate_fug' is the (partial?) fugacity at P_0, T_0
 
-        # Inheret all prroperties from HydrateEos
-        super().__init__(compobjs, T, P, structure)
+        # Inherit all properties from HydrateEos
+        super().__init__(comps, T, P, structure)
         self.kappa = np.zeros(1)
         self.kappa0 = self.Hs.kappa
         self.a0_cubed = self.lattice_to_volume(self.Hs.a0_ast)
-        self.kappa_vec = np.zeros(self.Nc)
-        self.rep_sm_vec = np.zeros(self.Nc)
-        self.rep_lg_vec = np.zeros(self.Nc)
-        self.D_vec = np.zeros(self.Nc)
+        self.kappa_vec = np.zeros(self.num_comps)
+        self.rep_sm_vec = np.zeros(self.num_comps)
+        self.rep_lg_vec = np.zeros(self.num_comps)
+        self.D_vec = np.zeros(self.num_comps)
         self.a_new = self.Hs.a_norm
-        self.Y_small_0 = np.zeros(self.Nc)
-        self.Y_large_0 = np.zeros(self.Nc)
-        self.eq_fug = np.zeros(self.Nc)
-        self.stdstate_fug = np.zeros(self.Nc)
+        self.Y_small_0 = np.zeros(self.num_comps)
+        self.Y_large_0 = np.zeros(self.num_comps)
+        self.eq_fug = np.zeros(self.num_comps)
+        self.stdstate_fug = np.zeros(self.num_comps)
 
         # Retrieve information for components and populate within vectors
-        for ii, comp in enumerate(compobjs):
+        for ii, comp in enumerate(comps):
             self.kappa_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['kappa']
             self.rep_sm_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['rep']['small']
             self.rep_lg_vec[ii] = comp.HvdWPM[self.Hs.hydstruc]['rep']['large']
@@ -159,7 +364,7 @@ class HvdwpmEos(HydrateEos):
 
         # Set up parameters that do not change with the system, which
         # in the case means the fugacity of other phases.
-        self.make_constant_mats(compobjs, T, P)
+        self.make_constant_mats(comps, T, P)
 
         # Set up parameters that depend on standard state (T_0, P_0)
         # Now, the lattice size won't change. However, the volume will
@@ -167,12 +372,12 @@ class HvdwpmEos(HydrateEos):
         # and cage occupancy depends on langmuir constants, which in turn
         # depend on the volume. Thus, the langmuir constants will have to be
         # determined at each '.calc' call.
-        self.find_stdstate_volume(compobjs, T, P)
+        self.find_stdstate_volume(comps, T, P)
 
 
-    def make_constant_mats(self, compobjs, T, P):
+    def make_constant_mats(self, comps, T, P):
         # Do standard stuff
-        super().make_constant_mats(compobjs, T, P)
+        super().make_constant_mats(comps, T, P)
 
         self.gwbeta_RT = (
             self.Hs.gw_0beta/(R*T_0)
@@ -198,8 +403,8 @@ class HvdwpmEos(HydrateEos):
     def find_stdstate_volume(self, compobjs, T, P):
         error = 1e6
         TOL = 1e-3
-        C_small = np.zeros(self.Nc)
-        C_large = np.zeros(self.Nc)
+        C_small = np.zeros(self.num_comps)
+        C_large = np.zeros(self.num_comps)
         # 'Lattice sz' will originally be equal to self.Hs.a0_ast because we
         # set self.Y_*_0 equal to zero.
         # That will produce one set of C's and new Y's. We will then iterate
@@ -240,8 +445,8 @@ class HvdwpmEos(HydrateEos):
             C_small = self.C_small
             C_large = self.C_large
         else:
-            C_small = np.zeros(self.Nc)
-            C_large = np.zeros(self.Nc)
+            C_small = np.zeros(self.num_comps)
+            C_large = np.zeros(self.num_comps)
 
         # That will produce one set of C's and new Y's. We will then iterate
         # until convergence on 'C'. 'lattice_sz' is now fixed.
@@ -277,7 +482,7 @@ class HvdwpmEos(HydrateEos):
         # This is what I had in the Matlab prototype that seemed to agree
         # with CSMGem. However, it may not be accurate. The weighted sum
         # may also need to be evaluated.
-        if self.Nc > 2:
+        if self.num_comps > 2:
             kappa = 3.0*np.sum(self.kappa_vec*Y_large)
         else:
             kappa = self.kappa0
@@ -325,7 +530,7 @@ class HvdwpmEos(HydrateEos):
         # as we do here. In his version, the weighted exponential is always
         # used. However, we saw better agreement by separating single and
         # multiple guests.
-        if self.Nc>2:
+        if self.num_comps>2:
             self.repulsive_small = (small_const*np.exp(
                 self.D_vec - np.sum(self.Y_small_0*self.D_vec)
             ))
@@ -409,8 +614,8 @@ class HvdwpmEos(HydrateEos):
 
     def langmuir_consts(self, compobjs, T, P, lattice_sz, kappa):
         self.compute_integral_constants(T, P, lattice_sz, kappa)
-        C_small = np.zeros(self.Nc)
-        C_large = np.zeros(self.Nc)
+        C_small = np.zeros(self.num_comps)
+        C_large = np.zeros(self.num_comps)
         C_const = 1e-10**3*4*np.pi/(k*T)*1e5
         for ii, comp in enumerate(compobjs):
             if comp.compname != 'h2o':
@@ -458,12 +663,12 @@ class HvdwpmEos(HydrateEos):
         return activity
 
 
-    def fugacity_calc(self, compobjs, T, P, x, eq_fug):
+    def fugacity(self, compobjs, T, P, x, eq_fug):
 
         if (eq_fug == self.eq_fug).all():
             fug = self.fug.copy()
         else:
-            fug = np.zeros(self.Nc)
+            fug = np.zeros(self.num_comps)
             fug[1:] = eq_fug[1:]
 
         # This will produce the correct C's and Y's, where Y is a
@@ -491,7 +696,7 @@ class HvdwpmEos(HydrateEos):
         x_tmp = (self.Hs.Nm['small']*self.Y_small
                  + self.Hs.Nm['large']*self.Y_large)/self.Hs.Num_h2o
         x = x_tmp/(1.0 + np.sum(x_tmp))
-        x[self.h2oind] = 1.0 - np.sum(x)
+        x[self.water_ind] = 1.0 - np.sum(x)
 
         return x
 
