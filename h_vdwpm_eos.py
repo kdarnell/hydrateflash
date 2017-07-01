@@ -16,6 +16,13 @@ actual component list, and the hydrate structure cannot. The method 'calc'
 is the main calculation of the class, which uses other methods to determine
 the partial fugacity of each component given mole fractions, pressure,
 temperature, and structure.
+
+    Functions
+    ----------
+    delta_func :
+        Special calculation used in Kihara potential
+    w_func :
+        Spherical kihara potential
 """
 import numpy as np
 from scipy.integrate import quad
@@ -27,24 +34,79 @@ P_0 = 1.0  # reference pressure in bar
 k = 1.3806488e-23  # Boltzmann's constant in J/K
 
 
+def delta_func(N, Rn, aj, r):
+    """Function specifically used in langmuir constant calculation
+
+    Parameters
+    ----------
+    N : int
+        Exponent used in calculation
+    Rn : float
+        Radius of cage
+    aj : float
+        Radius of guest molecule
+    r : float
+        General radius
+
+    Returns
+    ----------
+    delta : float
+        Distance measure
+    """
+    delta = ((1.0 - r/Rn - aj/Rn)**(-N) - (1.0 + r/Rn - aj/Rn)**(-N))/N
+    return delta
+
+def w_func(zn, eps_k, r, Rn, sigma, aj):
+    """Kihara spherical potential function
+
+    Parameters
+    ----------
+    zn : int
+        Number of water molecules
+    eps_k : float
+        Kihara potential parameter, \epsilon (normalized by
+        Boltzmann's constant), for guest
+    r : float
+        General radius
+    Rn : float
+        Radius of cage
+    sigma : float
+        Kihara potential parameter, sigma, for guest
+    aj : float
+        Radius of guest molecule
+
+
+    Returns
+    ----------
+    w : float
+        Kihara potential of guest at a specific radius
+    """
+    w = (2 * zn * eps_k * (sigma ** 12 / (Rn ** 11 * r)
+                           * (delta_func(10, Rn, aj, r)
+                              + (aj / Rn) * delta_func(11, Rn, aj, r))
+                           - sigma ** 6 / (Rn ** 5 * r)
+                           * (delta_func(4, Rn, aj, r)
+                              + (aj / Rn) * delta_func(5, Rn, aj, r))))
+    return w
+
 class HydrateEos(object):
     """The parent class for this EOS that perform various calculations.
 
-        Methods
-        ----------
-        make_constant_mats :
-            Performs calculations that only depend on pressure and temperature.
-        langmuir_consts :
-            Performs the langmuir constant calculation.
-        calc_langmuir :
-            Performs that calculates cage occupancies from langmuir constants.
-        delta_mu_func :
-            Calculates chemical potential difference according to van der Waals.
-        fugacity :
-            Calculates fugacity of only water in the hydrate phase.
-        calc:
-            Main calculation for hydrate phase EOS.
-        """
+    Methods
+    ----------
+    make_constant_mats :
+        Performs calculations that only depend on pressure and temperature.
+    langmuir_consts :
+        Performs the langmuir constant calculation.
+    calc_langmuir :
+        Performs that calculates cage occupancies from langmuir constants.
+    delta_mu_func :
+        Calculates chemical potential difference according to van der Waals.
+    fugacity :
+        Calculates fugacity of only water in the hydrate phase.
+    calc:
+        Main calculation for hydrate phase EOS.
+    """
     def __init__(self, comps, T, P, structure='s1'):
         """Hydrate EOS object for fugacity calculations.
 
@@ -74,7 +136,7 @@ class HydrateEos(object):
             Temperature at initialization in Kelvin.
         P : float
             Pressure at initialization in bar.
-        gwbeta_RT_cons : numpy array
+        gwbeta_RT : numpy array
             Pre-allocated array for gibbs energy of water
             in empty standard state.
         volume_int : numpy array
@@ -107,17 +169,23 @@ class HydrateEos(object):
             z_lg : numpy array
                 Pre-allocated array for number of water molecules
                 in each shell in the large cages.
-        alt_fug_ve : numpy array
+        alt_fug_vec : numpy array
             Pre-allocated array for fugacity of non-water components
             in phase at equilibrium with hydrate.
         Y_small : numpy array
-            Pre-allocated array for cage occupancy of large cages for
+            Pre-allocated array for cage occupancy of small cages for
             each non-water component.
         Y_large : numpy array
             Pre-allocated array for cage occupancy of large cages for
             each non-water component.
-        fug : numpy array
-            Pre-allocated array for fugacity of water in hydrate.
+        C_small : numpy array
+            Pre-allocated array for langmuir constants of small cages for
+            each non-water component.
+        C_large : numpy array
+            Pre-allocated array for langmuir constants of large cages for
+            each non-water component.
+        fug : float
+            Fugacity of water in hydrate.
 
         Notes
         ----------
@@ -137,7 +205,7 @@ class HydrateEos(object):
         self.num_comps = len(comps)
         self.T = T
         self.P = P
-        self.gwbeta_RT_cons = np.zeros(1)
+        self.gwbeta_RT = np.zeros(1)
         self.volume_int = np.zeros(1)
         self.volume = np.zeros(1)
         self.activity = np.zeros(1)
@@ -147,9 +215,11 @@ class HydrateEos(object):
         self.alt_fug_vec = np.zeros(self.num_comps)
         self.Y_small = np.zeros(self.num_comps)
         self.Y_large = np.zeros(self.num_comps)
+        self.C_small = np.zeros(self.num_comps)
+        self.C_large = np.zeros(self.num_comps)
         self.fug = 0
-        for k, v in dict.items(self.Hs.eos[self.eos_key]):
-            setattr(self.Hs, k, v)
+        for key, value in dict.items(self.Hs.eos[self.eos_key]):
+            setattr(self.Hs, key, value)
         self.R_sm = np.zeros(len(self.Hs.R['sm']))
         self.z_sm = np.zeros_like(self.R_sm)
         for ii in range(len(self.z_sm)):
@@ -185,7 +255,7 @@ class HydrateEos(object):
         self.P = P
         self.gw0_RT = comps[self.water_ind].gibbs_ideal(T, P)
 
-    def langmuir_consts(self, compobjs, T, P):
+    def langmuir_consts(self, comps, T, P):
         """Calculation of langmuir constants.
 
         Parameters
@@ -306,15 +376,6 @@ class HydrateEos(object):
         fug : numpy array
             Fugacity of water in aqueous phase.
         """
-        if len(x) != len(comps):
-            if len(x) > len(comps):
-                raise RuntimeError("""Length of mole fraction vector 'x'
-                                   exceeds number of components!""")
-            elif not x:
-                raise RuntimeError("Mole fraction vector 'x' is empty!")
-            else:
-                raise RuntimeError("""Mole fraction vector 'x' contains less
-                                   values than component length!""")
         if comps != self.comps:
             print("""Warning: Action not supported.
                   \n Number of_components have changed.
@@ -323,13 +384,57 @@ class HydrateEos(object):
         else:
             # Re-calculate constants if pressure or temperature changes.
             if self.T != T or self.P != P:
-                self.make_constant_mats(compobjs, T, P)
+                self.make_constant_mats(comps, T, P)
 
-            fug = self.fugacity(compobjs, T, P, x, eq_fug)
+            fug = self.fugacity(comps, T, P, x, eq_fug)
         return fug
 
-
 class HvdwpmEos(HydrateEos):
+    """The child class for this EOS that perform various calculations.
+
+    Methods
+    ----------
+    make_constant_mats :
+        Performs calculations that only depend on pressure and temperature.
+    find_stdstate_volume :
+        Finds the standard state volume of hydrate.
+    find_hydrate_properties :
+        Performs calculations necessary to determine hydrate properties.
+    kappa_func :
+        Determines compressibility of hydrate with specific cage occupancies.
+    hydrate_size :
+        Calculates size of hydrate.
+    h_vol_Pint :
+        Volume of hydrate integrated with respect to pressure.
+    lattice_to_volume :
+        Convert the lattice size of hydrate in angstrom to a volume in
+        cm^3/mol.
+    cage_distortion :
+        Calculate distortion of cage size due to filling by guests.
+    filled_lattice_size :
+        Calculate size of hydrate filled with guests.
+    iterate_function :
+        Special function that must be iterated due to nonlinear dependencies.
+    integrand :
+        Setup integrand for calculation of langmuir constant.
+    compute_integral_constants :
+        Calculate portions of integral that do not depend on composition.
+    langmuir_consts :
+        Calculate langmuir constants.
+    activity_func :
+        Calculate activity of water in hydrate due to filling of cages.
+    fugacity :
+        Calculate fugacity of wate rin hydrate.
+    hyd_comp :
+        Conversion of cage occupancies to a hydrate composition.
+
+    Constants
+    ----------
+    cp : dict
+        Dictionary of constants for heat capacity
+    eos_key : str
+        Key for use in HydrateStructure class information retrieval.s
+    """
     cp = {'a0': 0.735409713*R,
           'a1': 1.4180551e-2*R,
           'a2': -1.72746e-5*R,
@@ -337,10 +442,68 @@ class HvdwpmEos(HydrateEos):
     eos_key = 'hvdwpm'
 
     def __init__(self, comps, T, P, structure='s1'):
-        # 'stdstate_fug' is the (partial?) fugacity at P_0, T_0
+        """Hydrate EOS object for fugacity calculations.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'
+        T : float
+            Temperature at initialization in Kelvin
+        P : float
+            Pressure at initialization in bar
+        structure : str
+            Structure of hydrate ('s1' or 's2')
+
+        Attributes
+        ----------
+        kappa : numpy array
+            Compressibility of filled hydrate
+        kappa0 : float
+            Compressibility of empty hydrate of specific structure
+        a0_cubed : float
+            Size of standard empty hydrate
+        kappa_vec : numpy array
+            Compressibility of hydrate filled by a single guest
+        rep_sm_vec : numpy array
+            Repulsive constant for each guest in small cage
+        rep_lg_vec : numpy array
+            Repulsive constant for each guest in large cage
+        D_vec : numpy array
+            Diameter of each guest
+        a_new : float
+            Size of hydrate with specific composition
+        Y_small_0 : numpy array
+            Cage occupancy of small cage at standard state
+        Y_large_0 : numpy array
+            Cage occupancy of large cage at standard state
+        eq_fug : numpy array
+            Equilibrium fugacity of each component in another phase at
+            equilibrium with hydrate phase
+        stdstate_fug : numpy array
+            Fugacity of each component at standard state
+        vol_Tfactor : float
+            Change in hydrate volume from temperature dependence
+        lattice_Tfactor : float
+            Change in hydrate lattice size from temperature dependence
+        kappa_tmp : float
+            Temporary storage of kappa during convergence
+        a_0 : float
+            Lattice size at standard state
+        v_H_0 : float
+            Hydrate volume at standard state
+        v_H : float
+            Hydrate volume
+        repulsive_small : float
+            Repulsive constant in small cages
+        epulsive_small : float
+            Repulsive constant in large cages
+        """
 
         # Inherit all properties from HydrateEos
         super().__init__(comps, T, P, structure)
+
         self.kappa = np.zeros(1)
         self.kappa0 = self.Hs.kappa
         self.a0_cubed = self.lattice_to_volume(self.Hs.a0_ast)
@@ -353,6 +516,14 @@ class HvdwpmEos(HydrateEos):
         self.Y_large_0 = np.zeros(self.num_comps)
         self.eq_fug = np.zeros(self.num_comps)
         self.stdstate_fug = np.zeros(self.num_comps)
+        self.vol_Tfactor = None
+        self.lattice_Tfactor = None
+        self.kappa_tmp = None
+        self.a_0 = None
+        self.v_H_0 = None
+        self.v_H = None
+        self.repulsive_small = None
+        self.repulsive_large = None
 
         # Retrieve information for components and populate within vectors
         for ii, comp in enumerate(comps):
@@ -371,12 +542,31 @@ class HvdwpmEos(HydrateEos):
         # depend on P, T and kappa. And kappa depends on cage occupancy (Y)
         # and cage occupancy depends on langmuir constants, which in turn
         # depend on the volume. Thus, the langmuir constants will have to be
-        # determined at each '.calc' call.
+        # determined at each call to 'calc'.
         self.find_stdstate_volume(comps, T, P)
 
 
     def make_constant_mats(self, comps, T, P):
-        # Do standard stuff
+        """Portion of calculation that only depends on P and T.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature in Kelvin.
+        P : float
+            Pressure in bar.
+
+        Notes
+        ----------
+        Calculation assumes that pressure and temperature won't change
+        upon successive iteration of EOS. Instead, the calculation will
+        adjust molar fractions of each component at a fixed T and P.
+        However, if T and P do change then, it will recalculate these
+        constants.
+        """
         super().make_constant_mats(comps, T, P)
 
         self.gwbeta_RT = (
@@ -388,19 +578,33 @@ class HvdwpmEos(HydrateEos):
                + 6*T**2*T_0*self.cp['a1'] - 6*T*T_0**3*self.cp['a2']
                + 2*T**3*T_0*self.cp['a2'] - 4*T*T_0**4*self.cp['a3']
                + T**4*T_0*self.cp['a3'] + 12*T*T_0*self.cp['a0']*np.log(T)
-               - 12*T*T_0*self.cp['a0']*np.log(T_0))/(12*R*T*T_0)
-            + (self.Hvol_Pint(T, P, self.a0_cubed, self.kappa0)
-               - self.Hvol_Pint(T, P_0, self.a0_cubed, self.kappa0))*1e-1/(R*T)
+               - 12*T*T_0*self.cp['a0']*np.log(T_0)) / (12*R*T*T_0)
+            + (self.h_vol_Pint(T, P, self.a0_cubed, self.kappa0)
+               - self.h_vol_Pint(T, P_0, self.a0_cubed, self.kappa0)) * 1e-1 / (R * T)
         )
 
-        # To be used later, there will be a similar *_Pfactor
-        self.vol_Tfactor = self.Hydrate_size(T, P_0, 1.0, self.kappa0)
-        self.lattice_Tfactor = self.Hydrate_size(T, P_0, 1.0,
+        self.vol_Tfactor = self.hydrate_size(T, P_0, 1.0, self.kappa0)
+        self.lattice_Tfactor = self.hydrate_size(T, P_0, 1.0,
                                                  self.kappa0, dim='linear')
-        return self
 
-    # Determine v0(x):
-    def find_stdstate_volume(self, compobjs, T, P):
+    def find_stdstate_volume(self, comps, T, P):
+        """Calculation of standard state volume and other properties.
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature in Kelvin.
+        P : float
+            Pressure in bar.
+
+        Notes
+        ----------
+        Standard state is an empty hydrate at reference pressure and temperature.
+        This still depends on composition.
+        """
         error = 1e6
         TOL = 1e-3
         C_small = np.zeros(self.num_comps)
@@ -412,18 +616,19 @@ class HvdwpmEos(HydrateEos):
         kappa = self.kappa0
         lattice_sz = self.Hs.a0_ast
         while error > TOL:
-            out = self.iterate_function(compobjs, T_0, P_0,
+            out = self.iterate_function(comps, T_0, P_0,
                                         self.stdstate_fug,
                                         lattice_sz, kappa)
+            # Update these on every iteration
             C_small_new = out[0]
             C_large_new = out[1]
-            self.Y_small_0 = out[2]  # Update these on every iteration
+            self.Y_small_0 = out[2]
             self.Y_large_0 = out[3]
             lattice_sz = self.filled_lattice_size()
             kappa = self.kappa_func(self.Y_large_0)
 
             error = 0.0
-            for ii, comp in enumerate(compobjs):
+            for ii, comp in enumerate(comps):
                 if comp.compname != 'h2o':
                     error += (abs(C_small_new[ii]
                                   - C_small[ii])/C_small_new[ii]
@@ -434,10 +639,23 @@ class HvdwpmEos(HydrateEos):
         self.kappa_tmp = kappa
         self.a_0 = lattice_sz
         self.v_H_0 = self.lattice_to_volume(lattice_sz)
-        return self
 
-    # Determine v(x, T, P) and C, Y:
-    def find_hydrate_properties(self, compobjs, T, P, eq_fug):
+    def find_hydrate_properties(self, comps, T, P, eq_fug):
+        """Hydrate properties at T, P, and with specific composition
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'
+        T : float
+            Temperature in Kelvin
+        P : float
+            Pressure in bar
+        eq_fug : numpy array
+            Equilibrium fugacity of each non-water component that will
+            be in equilibrium within some other phase
+        """
         error = 1e6
         TOL = 1e-3
 
@@ -448,22 +666,21 @@ class HvdwpmEos(HydrateEos):
             C_small = np.zeros(self.num_comps)
             C_large = np.zeros(self.num_comps)
 
-        # That will produce one set of C's and new Y's. We will then iterate
-        # until convergence on 'C'. 'lattice_sz' is now fixed.
         kappa = self.kappa_tmp.copy()
         lattice_sz = self.a_0
         while error > TOL:
-#            print('dictionary at find_props=', self.__dict__)
-            out = self.iterate_function(compobjs, T, P, eq_fug,
+            out = self.iterate_function(comps, T, P, eq_fug,
                                         lattice_sz, kappa)
+
+            # Update these on every iteration
             C_small_new = out[0]
             C_large_new = out[1]
-            self.Y_small = out[2]  # Update these on every iteration
+            self.Y_small = out[2]
             self.Y_large = out[3]
             kappa = self.kappa_func(self.Y_large)
 
             error = 0.0
-            for ii, comp in enumerate(compobjs):
+            for ii, comp in enumerate(comps):
                 if comp.compname != 'h2o':
                     error += (abs(C_small_new[ii]
                                   - C_small[ii])/C_small_new[ii]
@@ -475,13 +692,16 @@ class HvdwpmEos(HydrateEos):
         self.C_small = C_small
         self.C_large = C_large
         self.kappa_tmp = kappa.copy()
-        self.v_H = self.Hydrate_size(T, P, self.v_H_0, kappa)
-        return self
+        self.v_H = self.hydrate_size(T, P, self.v_H_0, kappa)
 
     def kappa_func(self, Y_large):
-        # This is what I had in the Matlab prototype that seemed to agree
-        # with CSMGem. However, it may not be accurate. The weighted sum
-        # may also need to be evaluated.
+        """Compressibility of hydrate function
+
+        Parameters
+        ----------
+        Y_large : numpy array
+            Fractional occupancy of large hydrate cages
+        """
         if self.num_comps > 2:
             kappa = 3.0*np.sum(self.kappa_vec*Y_large)
         else:
@@ -489,14 +709,39 @@ class HvdwpmEos(HydrateEos):
 
         return kappa
 
-    # Pass the volumetric versions of these!
-    # Standard hydrate parameters are reported as volumeteric.
-    # Componenet parameters for kappa are reported as linear.
-    def Hydrate_size(self, T, P, v, kappa, dim='volumetric'):
+    def hydrate_size(self, T, P, v, kappa, dim='volumetric'):
+        """Hydrate properties at T, P, and with specific composition
+
+        Parameters
+        ----------
+        T : float
+            Temperature in Kelvin
+        P : float
+            Pressure in bar
+        v : float
+            Size of hydrate (either volumetric or linear)
+        kappa : float
+            Compressibility of hydrate
+        dim : str
+            Dimension of interest ('volumetric' or 'linear'
+
+        Returns
+        ----------
+        H_size : float
+            Size of hydrate in dimension specified in argument list
+
+        Notes
+        ----------
+        In various places, either the linear or volumetric sizes are necessary
+        components in a particular calculation. A small, constant difference is
+        required to switch between the two.
+        """
         if dim == 'volumetric':
             factor = 1.0
         elif dim == 'linear':
             factor = 1.0/3.0
+        else:
+            raise ValueError("Invalid option for optional argument 'dim'!")
 
         H_size = (v*np.exp(factor*(self.Hs.alf[1]*(T - T_0)
                                    + self.Hs.alf[2]*(T - T_0)**2
@@ -504,23 +749,54 @@ class HvdwpmEos(HydrateEos):
                                    - kappa*(P - P_0))))
         return H_size
 
-    # Pressure-integrated hydrate volume (for use in other equations)
-    def Hvol_Pint(self, T, P, v, kappa):
-        v = self.Hydrate_size(T, P, v, kappa)/(-kappa)
+    def h_vol_Pint(self, T, P, v, kappa):
+        """Hydrate volume integrated with respect to pressure
+
+        Parameters
+        ----------
+        T : float
+            Temperature in Kelvin
+        P : float
+            Pressure in bar
+        v : float
+            Size of hydrate (either volumetric or linear)
+        kappa : float
+            Compressibility of hydrate
+
+        Returns
+        ----------
+        v : float
+            Hydrate volume integrated wrt pressure in cm^3 - bar /mol
+        """
+        v = self.hydrate_size(T, P, v, kappa) / (-kappa)
         return v
 
-    # Conversion of 'linear' lattice parameter to a volume in cm^3/mol
     def lattice_to_volume(self, lattice_sz):
+        """Conversion of linear hydrate size to volumetric size
+
+        Parameters
+        ----------
+        lattice_sz : float
+            Size of hydrate as a radius in angstrom
+
+        Returns
+        ----------
+        v : float
+            Volume of hydrate in cm^3/mol
+        """
         if self.Hs.hydstruc != 'sH':
-            v = 6.0221413e23/self.Hs.Num_h2o/1e24*(lattice_sz)**3
+            v = 6.0221413e23/self.Hs.Num_h2o/1e24*lattice_sz**3
         else:
             v = self.Hs.v0
         return v
 
-    # Distortion of cage from occupancy
     def cage_distortion(self):
-        # Note that these are evaluated at self.Y_size0. This is because
-        # this distortion function is evaluated at T_0, P_0
+        """Distortion of cages when filled with guests
+
+        Notes
+        ----------
+        This depends on composition, but not on temperature or pressure.
+        """
         small_const = (
             (1 + self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small_0
             / (1 + (self.Hs.etam['small']/self.Hs.Num_h2o)*self.Y_small_0)
@@ -530,7 +806,7 @@ class HvdwpmEos(HydrateEos):
         # as we do here. In his version, the weighted exponential is always
         # used. However, we saw better agreement by separating single and
         # multiple guests.
-        if self.num_comps>2:
+        if self.num_comps > 2:
             self.repulsive_small = (small_const*np.exp(
                 self.D_vec - np.sum(self.Y_small_0*self.D_vec)
             ))
@@ -541,10 +817,16 @@ class HvdwpmEos(HydrateEos):
             (1 + self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large_0
             / (1 + (self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large_0)
         )
-        return self
 
     # Determine size of lattice due to the filling of cages at T_0, P_0
     def filled_lattice_size(self):
+        """Size of hydrate lattice when filled
+
+        Returns
+        ----------
+        lattice sz : float
+            Size of lattice when filled by guests
+        """
         self.cage_distortion()
         lattice_sz = (self.Hs.a0_ast
                       + (self.Hs.Nm['small']
@@ -553,73 +835,134 @@ class HvdwpmEos(HydrateEos):
                          *np.sum(self.repulsive_large*self.rep_lg_vec)))
         return lattice_sz
 
-    def iterate_function(self, compobjs, T, P, fug, lattice_sz, kappa):
-        C_small, C_large = self.langmuir_consts(compobjs, T, P,
+    def iterate_function(self, comps, T, P, fug, lattice_sz, kappa):
+        """Function that must be iterated until convergence due to nonlinearity
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'
+        T : float
+            Temperature in Kelvin
+        P : float
+            Pressure in bar
+        fug : numpy array
+            Fugacity of each non-water component that will
+            be in equilibrium within some other phase
+        lattice_sz : float
+            Size of filled hydrate lattice
+        kappa : float
+            Compressibility of filled hydrate
+
+        Returns
+        ----------
+        calc_list : list of numpy arrays
+            List of output variables such that each element is a
+            numpy array. First element is a numpy array of small cage
+            langmuir constants, second element is a numpy array of large
+            cage langmuir constants, third elements is a numpy array
+            of small cage fractional occupancies, and fourth element is
+            a numpy array of large cage fractional occupancies.
+        """
+        C_small, C_large = self.langmuir_consts(comps, T, P,
                                                 lattice_sz, kappa)
         Y_small = self.calc_langmuir(C_small, fug)
         Y_large = self.calc_langmuir(C_large, fug)
-        return [C_small, C_large, Y_small, Y_large]
-
-
-    def delta_func(self, N, Rn, aj, r):
-        delta = ((1.0 - r/Rn - aj/Rn)**(-N) - (1.0 + r/Rn - aj/Rn)**(-N))/N
-        return delta
-
-    def w_func(self, zn, eps_k, r, Rn, sigma, aj):
-        w = (2*zn*eps_k*(sigma**12/(Rn**11*r)
-                         * (self.delta_func(10, Rn, aj, r)
-                            + (aj/Rn)*self.delta_func(11, Rn, aj, r))
-                         - sigma**6/(Rn**5*r)
-                         * (self.delta_func(4, Rn, aj, r)
-                            + (aj/Rn)*self.delta_func(5, Rn, aj, r))))
-        return w
+        calc_list = [C_small, C_large, Y_small, Y_large]
+        return  calc_list
     
-    def integrand(self, r, R, z, eps_k, sigma, aj, T):
-        integrand_sum = 0
-        for ii in range(len(R)):
-            integrand_sum += self.w_func(z[ii], eps_k, r, R[ii], sigma, aj)
-            
-        output = r**2*np.exp((-1.0/T)*integrand_sum)
-        return output
+    def integrand(self, r, Rn, z, eps_k, sigma, aj, T):
+        """Kihara spherical potential function
 
-#    def integrand_sm(self, r, R1, R2, z1, z2, eps_k, sigma, aj, T):
-#        output = r**2*np.exp((-1.0/T)
-#                             * (self.w_func(z1, eps_k, r, R1, sigma, aj)
-#                                + self.w_func(z2, eps_k, r, R2, sigma, aj)))
-#        return output
-#
-#    def integrand_lg(self, r, R1, R2, R3, R4, z1, z2, z3, z4,
-#                     eps_k, sigma, aj, T):
-#        output = r**2*np.exp((-1.0/T)
-#                             * (self.w_func(z1, eps_k, r, R1, sigma, aj)
-#                                + self.w_func(z2, eps_k, r, R2, sigma, aj)
-#                                + self.w_func(z3, eps_k, r, R3, sigma, aj)
-#                                + self.w_func(z4, eps_k, r, R4, sigma, aj)))
-#        return output
+        Parameters
+        ----------
+        r : float
+            General radius
+        Rn : list, numpy array
+            Radius of each cage in hydrate structure
+        z : int
+            Number of water molecules
+        eps_k : float
+            Kihara potential parameter, \epsilon (normalized by
+            Boltzmann's constant), of guest
+        sigma : float
+            Kihara potential parameter, sigma, og guest
+        aj : float
+            Radius of guest molecule
+        T : float
+            Temperature in Kelvin
+
+
+        Returns
+        ----------
+        integrand_w : numpy array
+            Integrand as a function of radius
+        """
+        integrand_sum = 0
+        for ii in range(len(Rn)):
+            integrand_sum += w_func(z[ii], eps_k, r, Rn[ii], sigma, aj)
+            
+        integrand_w = r**2*np.exp((-1.0/T)*integrand_sum)
+        return integrand_w
 
     def compute_integral_constants(self, T, P, lattice_sz, kappa):
-        Pfactor = self.Hydrate_size(T_0, P, 1.0, kappa, dim='linear')
+        """Function to compute integral for langmuir constant calculation
+
+        Parameters
+        ----------
+        T : float
+            Temperature in Kelvin
+        P : float
+            Pressure in bar
+        lattice_sz : float
+            Size of filled hydrate lattice
+        kappa : float
+            Compressibility of filled hydrate
+        """
+        Pfactor = self.hydrate_size(T_0, P, 1.0, kappa, dim='linear')
         a_factor = (lattice_sz/self.Hs.a_norm)*self.lattice_Tfactor*Pfactor
         for ii in range(len(self.Hs.R['sm'])):
             self.R_sm[ii] = self.Hs.R['sm'][ii + 1]*a_factor
         for ii in range(len(self.Hs.R['lg'])):
             self.R_lg[ii] = self.Hs.R['lg'][ii + 1]*a_factor
-#        self.R1_sm = self.Hs.R['sm'][1]*a_factor
-#        self.R2_sm = self.Hs.R['sm'][2]*a_factor
-#        self.R1_lg = self.Hs.R['lg'][1]*a_factor
-#        self.R2_lg = self.Hs.R['lg'][2]*a_factor
-#        self.R3_lg = self.Hs.R['lg'][3]*a_factor
-#        self.R4_lg = self.Hs.R['lg'][4]*a_factor
-        return self
 
-    def langmuir_consts(self, compobjs, T, P, lattice_sz, kappa):
+    def langmuir_consts(self, comps, T, P, lattice_sz, kappa):
+        """Calculates langmuir constant through many interior calculations
+
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'
+        T : float
+            Temperature in Kelvin
+        P : float
+            Pressure in bar
+        lattice_sz : float
+            Size of filled hydrate lattice
+        kappa : float
+            Compressibility of filled hydrate
+
+        Returns
+        ----------
+        C_small : numpy array
+            Langmuir constants for each guest in small cage
+        C_large : numpy array
+            Langmuir constants for each guest in large cage
+
+        Notes
+        ----------
+        Calculation will perform numerical integration and is numerically
+        expensive. Other methods are possible, but not as accurate given
+        the accompanying empirically fit parameter set.
+        """
         self.compute_integral_constants(T, P, lattice_sz, kappa)
         C_small = np.zeros(self.num_comps)
         C_large = np.zeros(self.num_comps)
         C_const = 1e-10**3*4*np.pi/(k*T)*1e5
-        for ii, comp in enumerate(compobjs):
-            if comp.compname != 'h2o':
-
+        for ii, comp in enumerate(comps):
+            if ii != self.water_ind:
                 small_int = quad(self.integrand,
                                  0,
                                  min(self.R_sm) - comp.HvdWPM['kih']['a'],
@@ -651,53 +994,85 @@ class HvdwpmEos(HydrateEos):
 
 
     def activity_func(self, T, P, v_H_0):
+        """Calculates activity of water between aqueous phase and filledhydrate
+
+        Parameters
+        ----------
+        T : float
+            Temperature in Kelvin
+        P : float
+            Pressure in bar
+        v_H_0 : float
+            Volume of hydrate at standard state
+
+        Returns
+        ----------
+        activity : float
+            Activity of water
+        """
         kappa_wtavg = self.kappa_func(self.Y_large)
         activity = (
-            (v_H_0 - self.a0_cubed)/R*(self.Hs.a_fit/T_0
+            (v_H_0 - self.a0_cubed) / R * (self.Hs.a_fit/T_0
                                        + self.Hs.b_fit*(1/T - 1/T_0))
-            + ((self.Hvol_Pint(T, P, v_H_0, kappa_wtavg)
-                - self.Hvol_Pint(T, P, self.a0_cubed, self.kappa0))
-              - (self.Hvol_Pint(T, P_0, v_H_0, kappa_wtavg)
-                 - self.Hvol_Pint(T, P_0, self.a0_cubed, self.kappa0)))*1e-1/(R*T)
+            + ((self.h_vol_Pint(T, P, v_H_0, kappa_wtavg)
+                - self.h_vol_Pint(T, P, self.a0_cubed, self.kappa0))
+               - (self.h_vol_Pint(T, P_0, v_H_0, kappa_wtavg)
+                  - self.h_vol_Pint(T, P_0, self.a0_cubed, self.kappa0))) * 1e-1 / (R * T)
         )
         return activity
 
 
-    def fugacity(self, compobjs, T, P, x, eq_fug):
+    def fugacity(self, comps, T, P, x, eq_fug):
+        """Main calculation for the EOS which returns array of fugacities
 
+        Parameters
+        ----------
+        comps : list
+            List of components as 'Component' objects created with
+            'component_properties.py'.
+        T : float
+            Temperature in Kelvin.
+        P : float
+            Pressure in bar.
+        x : list, numpy array
+            Dummy list of molar fraction in hydrate phase to maintain
+            argument parallelism with other EOS's.
+        eq_fug : numpy array
+            Equilibrium fugacity of each non-water component that will
+            be in equilibrium within some other phase.
+
+        Returns
+        ----------
+        fug : float
+            Fugacity of water in aqueous phase.
+        """
         if (eq_fug == self.eq_fug).all():
             fug = self.fug.copy()
         else:
             fug = np.zeros(self.num_comps)
             fug[1:] = eq_fug[1:]
 
-        # This will produce the correct C's and Y's, where Y is a
-        # strong fucntion of 'eq_fug' and C is a weak function of 'eq_fug'
-#        print(self.__dict__)
-        self.find_hydrate_properties(compobjs, T, P, eq_fug)
-#        print(self.__dict__)
-
-
-        # This strongly depends on Y
-        delta_mu_RT = self.delta_mu_func(compobjs, T, P)
-
-        # This weakly depends on Y
+        self.find_hydrate_properties(comps, T, P, eq_fug)
+        delta_mu_RT = self.delta_mu_func(comps, T, P)
         activity = self.activity_func(T, P, self.v_H_0)
-
-        # Thus, this depends strongly on Y
         mu_H_RT = self.gwbeta_RT + activity + delta_mu_RT
         fug[0] = np.exp(mu_H_RT - self.gw0_RT)
         self.fug = fug.copy()
-
         return fug
 
     # Calcualte hydrate composition
     def hyd_comp(self):
+        """Hydrate composition as a molar fraction
+
+        Returns
+        ----------
+        x : numpy
+            Molar fraction of each component in hydrate phase
+        """
         x_tmp = (self.Hs.Nm['small']*self.Y_small
                  + self.Hs.Nm['large']*self.Y_large)/self.Hs.Num_h2o
         x = x_tmp/(1.0 + np.sum(x_tmp))
         x[self.water_ind] = 1.0 - np.sum(x)
-
         return x
 
 

@@ -1,28 +1,39 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Thu Jan 12 14:58:38 2017
+"""Algorithm for determining phase stability given P, T, and composition
 
-@author: kdarnell
-"""
-
-"""
-Starting the general flash handler for iteration and calling
-of EOS objects. I will prepare skeleton here first (01/11/17).
+The algorithmic framework presented here constitutes a hydrate
+flash algorithm, such that the amount and presence of hydrate can
+be predicted given simple input. It follows the general procedure
+of CSMGem.
 """
 import numpy as np
 from scipy.optimize import minimize, newton_krylov, fsolve
 import time
 
-# Not sure if I want these classes in this file
 import component_properties as cp
 import aq_hb_eos as aq
 import h_vdwpm_eos as h
-import vlhc_srk_EOS as hc
+import vlhc_srk_eos as hc
+
+
+
 
 class FlashController(object):
-    # This the possible aliases for phases.
-    # Keys are phases, values are aliases.
+    """Main method for handling of calculation
+
+    Attributes
+    ----------
+    phase_menu : dict
+        Dictionary relating possible phases (keys) and aliases
+        for those phases (values).
+    eos_menu : dict
+        Dictionary relating possible phases (keys) and different
+        eos's (values) for each phase that might be used.
+    eos_default : dict
+        Dictionary setting default eos (values) for each possible
+        phase (key).
+    """
     phase_menu = {'aqueous': ('aqueous', 'aq', 'water', 'liquid'),
                   'vapor': ('vapor', 'v', 'gas', 'vaporhc', 'hc'),
                   'lhc': ('lhc', 'liquidco2', 'liquid_co2', 'l',
@@ -34,9 +45,6 @@ class FlashController(object):
                          'hydrate s2', 'structure 2',
                          'structure 2 hydrate', 'str 2'),
                   'ice': ('ice')}
-
-    # This is the ultimate hope, but right now the eos's are limited.
-    # Keys are phases, values are different eos'.
     eos_menu = {'aqueous': ('aqhb', 'henryslaw'),
                 'vapor': ('srk', 'pr'),
                 'lhc': ('srk', 'pr'),
@@ -57,7 +65,35 @@ class FlashController(object):
                  phases=['aqueous', 'vapor', 'lhc', 's1'],
                  eos=eos_default,
                  T=298.15,
-                 P=1):
+                 P=1.0):
+        #TODO: Keep moving forward from here!
+        """Flash controller for a specific set of components with possible modification
+        for pressure or temperature
+
+
+        Parameters
+        ----------
+        components : list, tuple
+            Set of components to be used for the flash controller. This is not
+            allowed to change
+        phases : list, tuple
+            Set of phases to consider during flash
+        eos : dict
+            Dictionary for relating phases to a specific type of eos
+        T : float
+            Temperature in Kelvin
+        P : float
+            Pressure in Kelvin
+
+
+        Attributes
+        ----------
+
+
+        Methods
+        ----------
+
+        """
 
         self.T = T
         self.P = P
