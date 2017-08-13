@@ -666,7 +666,11 @@ class HvdwpmEos(HydrateEos):
             C_small = np.zeros(self.num_comps)
             C_large = np.zeros(self.num_comps)
 
-        kappa = self.kappa_tmp.copy()
+        if hasattr(self.kappa_tmp, 'copy'):
+            kappa = self.kappa_tmp.copy()
+        else:
+            kappa = self.kappa_tmp
+
         lattice_sz = self.a_0
         while error > TOL:
             out = self.iterate_function(comps, T, P, eq_fug,
@@ -691,7 +695,10 @@ class HvdwpmEos(HydrateEos):
 
         self.C_small = C_small
         self.C_large = C_large
-        self.kappa_tmp = kappa.copy()
+        if hasattr(self.kappa_tmp, 'copy'):
+            kappa = self.kappa_tmp.copy()
+        else:
+            kappa = self.kappa_tmp
         self.v_H = self.hydrate_size(T, P, self.v_H_0, kappa)
 
     def kappa_func(self, Y_large):

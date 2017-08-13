@@ -184,7 +184,7 @@ def jacobian(z, alpha, theta, K):
         theta_numerator / denominator[:, np.newaxis, np.newaxis],
         axis = 0)
     diag_denom = 1.0 + np.sum((K * np.exp(theta[np.newaxis, :]) - 1.0)
-                               * alpha[np.newaxis,v:],
+                               * alpha[np.newaxis, :],
                               axis=1)
     diag = np.sum(z[:, np.newaxis] * K * np.exp(theta[np.newaxis, :])
                   / diag_denom[:, np.newaxis],
@@ -641,7 +641,8 @@ class FlashController(object):
         # Build list for fugacity calculations
         fug_list = list()
         hyd_phases = dict()
-        for ii, phase in enumerate(self.phases):
+        phase_check = self.phases.copy()
+        for ii, phase in enumerate(phase_check):
             if phase in ('aqueous', 's1', 's2'):
                 if self.h2oexists:
                     if phase == 'aqueous':
@@ -665,7 +666,7 @@ class FlashController(object):
             else:
                 hc_obj = hc.SrkEos(self.compobjs, self.T, self.P)
                 fug_list.append(hc_obj)
-                if self.ref_phase is None and phase == 'vapor':
+                if self.ref_phase is None:
                     self.ref_phase = 'vapor'
 
         self.fug_list = fug_list
@@ -733,7 +734,7 @@ class FlashController(object):
                           and phase not in ['s1', 's2']].pop(0)
         self.set_ref_index()
         
-    def main_handler(self, compobjs, z, T, P, 
+    def main_handler(self, compobjs, z, T, P,
                      K_init=None, verbose=False,
                      initialize=True, run_diagnostics=False,
                      **kwargs):
@@ -774,7 +775,7 @@ class FlashController(object):
             values[4] : float
                 Maximum error on any variable from minimization calculation
         """
-        z = np.asarray(z / sum(z))
+        # z = np.asarray(z)
         self.set_feed(z)
         self.set_ref_index()
 
@@ -783,14 +784,14 @@ class FlashController(object):
 
         #TODO: Rewrite so that ideal K doesn't have to be re-calculated!
         if not K_init:
+            K_0 = self.make_ideal_K_mat(compobjs, T, P)
+            alpha_0 = np.ones([self.Np]) / self.Np
+            theta_0 = np.zeros([self.Np])
+        else:
             # Add more code to allow the specification of a partition coefficient
             print('K is not the default')
             K_0 = np.asarray(K_init)
-        else:
-            K_0 = self.make_ideal_K_mat(compobjs, T, P)
-            alpha_0 = np.ones([self.Np])/self.Np
-            theta_0 = np.zeros([self.Np])
-            
+
         if type(z) != np.ndarray:
             z = np.asarray(z)
 
@@ -873,7 +874,8 @@ class FlashController(object):
                 K_new = self.make_ideal_K_mat(compobjs, T, P)
                 alpha_new = np.ones([self.Np])/self.Np
                 theta_new = np.zeros([self.Np])
-                print('Changed reference phase')
+                if verbose:
+                    print('Changed reference phase')
                 
             # Set old values using copy 
             # (NOT direct assignment due to 
@@ -1177,7 +1179,7 @@ class FlashController(object):
     # Provide the option to specify the feed to predict the appropriate
     # reference phase or the option to specify the reference phase explicitly.
     def make_ideal_K_mat(self, compobjs, T, P, **kwargs):
-        """Ideal partition coefficient initializion routine
+        """Ideal partition coefficient initialization routine
 
         Parameters
         ----------
