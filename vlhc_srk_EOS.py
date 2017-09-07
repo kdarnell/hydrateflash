@@ -134,6 +134,8 @@ class SrkEos(object):
             self.Pr_vec[ii] = P/comp.Pc
             self.s1_vec[ii] = (0.48508 + 1.55171 * comp.SRK['omega']
                                - 0.15613 * comp.SRK['omega'] ** 2)
+            if comp.compname == 'h2o':
+                self.s1_vec[ii] = 1.2440
             self.alf_vec[ii] = (
                 (1.0 + self.s1_vec[ii] * (1.0 - np.sqrt(self.Tr_vec[ii]))
                  + comp.SRK['S2'] * (1.0 - np.sqrt(self.Tr_vec[ii]))

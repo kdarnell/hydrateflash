@@ -161,7 +161,7 @@ class Component(object):
                         'S2': -0.2018,
                         'kij': {'h2o': 0.0,
                                 'ch4': 0.4965,
-                                'co2': -0.07,  # CSMGem says 0.2453
+                                'co2': -0.07,  # CSMGem says 0.2453, documents say -0.07
                                 'n2': 0.5063,
                                 'c2h6': 0.5975,
                                 'c3h8': 0.5612}}
@@ -233,10 +233,10 @@ class Component(object):
                         'S2': -0.012223,
                         'kij': {'h2o': 0.4965,
                                 'ch4': 0.0,
-                                'co2': 0.0936,  # CSMGem says 0.097
-                                'n2': 0.0291,  # CSMGem says 0.04
-                                'c2h6': 0.0,  # CSMGem says 0.003
-                                'c3h8': 0.0}}  # CSMGem says 0.01008
+                                'co2': 0.0936,  # CSMGem says 0.097, documents say 0.0936
+                                'n2': 0.0291,  # CSMGem says 0.04, documents say 0.0291
+                                'c2h6': 0.003,  # CSMGem says 0.003, documents say 0.0
+                                'c3h8': 0.01008}}  # CSMGem says 0.01008, documents say 0.0
             self.HvdWPM = {'s1': {'kappa': 1e-5,
                                   'rep': {'small': 0.017668,
                                           'large': 0.010316}},
@@ -296,22 +296,22 @@ class Component(object):
                        'a3': 0.8756e-9*R}
             self.AqHB = {'cp': {'c1': 226.67,
                                 'c2': 9011737},
-                         'v': {'v1': 2.829,
+                         'v': {'v1': 3.612,
                                'v2': 5565.2,
                                'v3': 2.1778,
                                'v4': -139277},
                          'omega_born': -169870}
             self.SRK = {'omega': 0.0995,
-                        'S2': -0.0124,
+                        'S2': -0.012416,
                         'kij': {'h2o': 0.5975,
-                                'ch4': 0.0,  # CSMGem says 0.003
+                                'ch4': 0.003,  # CSMGem says 0.003, documents say 0.0
                                 'co2': 0.132,
-                                'n2': 0.0082,  # CSMGem says 0.02
+                                'n2': 0.02,  # CSMGem says 0.02, documents say 0.0082
                                 'c2h6': 0.0,
                                 'c3h8': 0.0}}
             self.HvdWPM = {'s1': {'kappa': 1e-8,
                                   'rep': {'small': 0.0,
-                                          'large': 0.015773}},
+                                          'large': 0.025154}},
                            's2': {'kappa': 1e-7,
                                   'rep': {'small': 0.0025097,
                                           'large': 0.014973}},
@@ -374,16 +374,16 @@ class Component(object):
                                'v4': -148260},
                          'omega_born': -211418}
             self.SRK = {'omega': 0.1523,
-                        'S2': -0.0038,
-                        'kij': {'h2o': 0.5612,  # CSMGem says 0.5612
-                                'ch4': 0.0,  # CSMGem says 0.01008
+                        'S2': -0.003791,
+                        'kij': {'h2o': 0.5612,
+                                'ch4': 0.01008,  # CSMGem says 0.01008, documents say 0.0
                                 'co2': 0.13,
-                                'n2': 0.0865,  # CSMGem says 0.086
+                                'n2': 0.086,  # CSMGem says 0.086, documents say 0.0865
                                 'c2h6': 0.0,
                                 'c3h8': 0.0}}
             self.HvdWPM = {'s1': {'kappa': 1e-7,
                                   'rep': {'small': 0.0,
-                                          'large': 0.029839}},
+                                          'large': 0.0}},
                            's2': {'kappa': 1e-6,
                                   'rep': {'small': 0.0,
                                           'large': 0.025576}},
@@ -447,10 +447,10 @@ class Component(object):
                          'omega_born': -8368}
             self.SRK = {'omega': 0.2236,
                         'S2': -0.004474,
-                        'kij': {'h2o': -0.07,  # CSMGem says 0.2453
-                                'ch4': 0.0936,  # CSMGem says 0.097
+                        'kij': {'h2o': -0.07,  # CSMGem says 0.2453, documents say -0.07
+                                'ch4': 0.0936,  # CSMGem says 0.097, documents say 0.0936
                                 'co2': 0.0,
-                                'n2': -0.0462,  # CSMGem says -0.046
+                                'n2': -0.0462,  # CSMGem says -0.046, documents say -0.0462
                                 'c2h6': 0.132,
                                 'c3h8': 0.13}}
             self.HvdWPM = {'s1': {'kappa': 1e-6,
@@ -520,11 +520,11 @@ class Component(object):
             self.SRK = {'omega': 0.0377,
                         'S2': -0.011016,
                         'kij': {'h2o': 0.5063,
-                                'ch4': 0.0291,  # CSMGEm says 0.04
-                                'co2': -0.0462,  # CSMGem says -.046
+                                'ch4': 0.0291,  # CSMGEm says 0.04, documents say 0.0291
+                                'co2': -0.0462,  # CSMGem says -.046, documents say -0.0462
                                 'n2': 0.0,
-                                'c2h6': 0.0082,  # CSMGem says 0.02
-                                'c3h8': 0.0862}}  # CSMGem says 0.086
+                                'c2h6': 0.0082,  # CSMGem says 0.02, documents say 0.0082
+                                'c3h8': 0.0862}}  # CSMGem says 0.086, documents say 0.0862
             self.HvdWPM = {'s1': {'kappa': 1.1e-5,
                                   'rep': {'small': 0.017377,
                                           'large': 0.0}},

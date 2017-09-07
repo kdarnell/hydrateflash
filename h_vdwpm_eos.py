@@ -26,6 +26,7 @@ temperature, and structure.
 """
 import numpy as np
 from scipy.integrate import quad
+import pdb
 
 # Constants
 R = 8.3144621  # universal gas constant in J/mol-K
@@ -814,15 +815,27 @@ class HvdwpmEos(HydrateEos):
         # used. However, we saw better agreement by separating single and
         # multiple guests.
         if self.num_comps > 2:
-            self.repulsive_small = (small_const*np.exp(
-                self.D_vec - np.sum(self.Y_small_0*self.D_vec)
-            ))
+            # Results of flash calculations for hydrocarbon systems do not produce results that are consistent
+            # with CSMGem. On August 31, 2017. I commented out the following lines to see if they are consisent.
+            # if self.Hs.hydstruc == 's1':
+            #     self.repulsive_small = (small_const * np.exp(
+            #         self.D_vec - np.sum(self.Y_small_0  * self.D_vec) / np.sum(self.Y_small_0)
+            #     ))
+            # else:
+            # self.repulsive_small = small_const
+            # self.repulsive_small = (small_const * np.exp(
+            #         self.D_vec - np.sum(self.Y_small_0  * self.D_vec)
+            #     ))
+            self.repulsive_small = (small_const * np.exp(
+                -(self.D_vec - np.sum(self.Y_small_0  * self.D_vec))
+                ))
+            self.repulsive_small[self.water_ind] = 0.0
         else:
             self.repulsive_small = small_const
 
         self.repulsive_large = (
-            (1 + self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large_0
-            / (1 + (self.Hs.etam['large']/self.Hs.Num_h2o)*self.Y_large_0)
+            (1 + self.Hs.etam['large']/self.Hs.Num_h2o) * self.Y_large_0
+            / (1 + (self.Hs.etam['large']/self.Hs.Num_h2o) * self.Y_large_0)
         )
 
     # Determine size of lattice due to the filling of cages at T_0, P_0
@@ -837,9 +850,9 @@ class HvdwpmEos(HydrateEos):
         self.cage_distortion()
         lattice_sz = (self.Hs.a0_ast
                       + (self.Hs.Nm['small']
-                         * np.sum(self.repulsive_small*self.rep_sm_vec))
+                         * np.sum(self.repulsive_small * self.rep_sm_vec))
                       + (self.Hs.Nm['large']
-                         *np.sum(self.repulsive_large*self.rep_lg_vec)))
+                         * np.sum(self.repulsive_large * self.rep_lg_vec)))
         return lattice_sz
 
     def iterate_function(self, comps, T, P, fug, lattice_sz, kappa):
@@ -1141,7 +1154,7 @@ class HydrateStructure(object):
                                    'a0_ast': 17.10000,
                                    'gw_0beta': -235627.53,
                                    'hw_0beta': -292044.10,
-                                   'a_fit': 260,
+                                   'a_fit': 260.0,
                                    'b_fit': -68.64,
                                    'alf': {1: 2.029776e-4,
                                            2: 1.851168e-7,

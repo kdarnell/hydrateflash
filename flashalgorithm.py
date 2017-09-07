@@ -37,6 +37,7 @@ import component_properties as cp
 import aq_hb_eos as aq
 import h_vdwpm_eos as h
 import vlhc_srk_eos as hc
+import pdb
 
 """Mapping from columns of K_all_mat to corresponding partition coefficient
 First phase is numerator, second phase is denominator"""
@@ -547,6 +548,7 @@ class FlashController(object):
         self.T = T
         self.P = P
         self.ref_phase = None
+        self.completed = False
         # Check that components exceed 1.
         if type(components) is str or len(components) == 1:
             raise ValueError("""More than one component is necessary 
@@ -641,7 +643,7 @@ class FlashController(object):
         # Build list for fugacity calculations
         fug_list = list()
         hyd_phases = dict()
-        phase_check = self.phases.copy()
+        phase_check = list(self.phases)
         for ii, phase in enumerate(phase_check):
             if phase in ('aqueous', 's1', 's2'):
                 if self.h2oexists:
@@ -666,8 +668,10 @@ class FlashController(object):
             else:
                 hc_obj = hc.SrkEos(self.compobjs, self.T, self.P)
                 fug_list.append(hc_obj)
-                if self.ref_phase is None:
+                if (self.ref_phase is None) and ('vapor' in self.phases):
                     self.ref_phase = 'vapor'
+                elif (self.ref_phase is None) and ('lhc' in self.phases):
+                    self.ref_phase = 'lhc'
 
         self.fug_list = fug_list
         self.hyd_phases = hyd_phases
@@ -700,12 +704,23 @@ class FlashController(object):
                 raise ValueError("""Feed fraction has different dimension than
                                     initial component list!""")
             elif self.h2oexists:
-                if z[self.h2oind] > 0.8:
+                if ((z[self.h2oind] > 0.8)
+                    or (('vapor' not in self.phases)
+                        and ('lhc' not in self.phases))):
                     self.ref_phase = 'aqueous'
-            else:
+                else:
+                    if 'vapor' in self.phases:
+                        self.ref_phase = 'vapor'
+                    elif 'lhc' in self.phases:
+                        self.ref_phase = 'lhc'
+            elif 'vapor' in self.phases:
                 # This is true for now. In practice, this sometimes needs to be
                 # lhc, but we will handle that within a different method.
                 self.ref_phase = 'vapor'
+            elif 'lhc' in self.phases:
+                self.ref_phase = 'lhc'
+
+            self.ref_phases_tried = []
 
     # TODO: Refactor this to be called initialization and make all the same checks.
     def set_phases(self, phases):
@@ -732,11 +747,19 @@ class FlashController(object):
         self.ref_phase = [phase for phase in self.phases
                           if phase not in self.ref_phases_tried 
                           and phase not in ['s1', 's2']].pop(0)
+        self.ref_phase_iter = 0
+        if not self.ref_phase:
+            self.ref_phase = self.ref_phases_tried[
+                np.mod(self.ref_phase_iter,
+                       len(self.ref_phases_tried))
+            ]
+            self.ref_phase_iter += 1
         self.set_ref_index()
         
     def main_handler(self, compobjs, z, T, P,
                      K_init=None, verbose=False,
                      initialize=True, run_diagnostics=False,
+                     incipient_calc=False,
                      **kwargs):
         """Primary logical utility for performing flash calculation
 
@@ -778,34 +801,37 @@ class FlashController(object):
         # z = np.asarray(z)
         self.set_feed(z)
         self.set_ref_index()
-
-        if verbose:
-            tstart = time.time()
-
-        #TODO: Rewrite so that ideal K doesn't have to be re-calculated!
-        if not K_init:
-            K_0 = self.make_ideal_K_mat(compobjs, T, P)
-            alpha_0 = np.ones([self.Np]) / self.Np
-            theta_0 = np.zeros([self.Np])
-        else:
-            # Add more code to allow the specification of a partition coefficient
-            print('K is not the default')
-            K_0 = np.asarray(K_init)
-
         if type(z) != np.ndarray:
             z = np.asarray(z)
 
-        if type(K_init) != np.ndarray:
-            K_init = np.asarray(K_init)
+        if verbose:
+            tstart = time.time()
             
-        if initialize or not hasattr(self, 'alpha_calc'):
-            alpha_new, theta_new = self.find_alphatheta_min(z, alpha_0, 
+        if initialize or not self.completed:
+            alpha_0 = np.ones([self.Np]) / self.Np
+            theta_0 = np.zeros([self.Np])
+            # TODO: Rewrite so that ideal K doesn't have to be re-calculated!
+            if not incipient_calc:
+                if not K_init:
+                    K_0 = self.make_ideal_K_mat(compobjs, T, P)
+                else:
+                    # Add more code to allow the specification of a partition coefficient
+                    print('K is not the default')
+                    K_0 = np.asarray(K_init)
+
+
+                if type(K_init) != np.ndarray:
+                    K_init = np.asarray(K_init)
+            else:
+                K_0 = self.incipient_calc(T, P)
+
+            alpha_new, theta_new = self.find_alphatheta_min(z, alpha_0,
                                                             theta_0, K_0)
             x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
             fug_new = self.calc_fugacity(T, P, x_new)
             x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
             K_new = self.calc_K(T, P, x_new)
-            
+
             if run_diagnostics:
                 print('Initial K:\n', K_0)
                 print('First iter K:\n', K_new)
@@ -824,7 +850,7 @@ class FlashController(object):
         TOL = 1e-6
         itercount = 0
         refphase_itercount = 0
-        iterlim = 50
+        iterlim = 500
         
         alpha_old = alpha_new.copy()
         theta_old = theta_new.copy()
@@ -841,7 +867,7 @@ class FlashController(object):
             # x and K at the new alpha and theta.
             x_error = 1e6
             x_counter = 0
-            while x_error > TOL*100 and x_counter < 1:
+            while x_error > 1e2*TOL and x_counter < 1:
                 x_new = self.calc_x(z, alpha_new, theta_new, K_new, T, P)
                 K_new = self.calc_K(T, P, x_new)
                 x_error = np.sum(abs(x_new - x_old))
@@ -866,13 +892,17 @@ class FlashController(object):
             nan_occur = (np.isnan(x_new).any() or np.isnan(K_new).any() 
                          or np.isnan(alpha_new).any() or np.isnan(theta_new).any())
             
-            if ((refphase_itercount > 10 
-                and alpha_new[self.ref_ind] < 0.01) 
+            if ((refphase_itercount > 20
+                and alpha_new[self.ref_ind] < 0.001)
                 or nan_occur) :
                 self.change_ref_phase() 
                 refphase_itercount = 0
-                K_new = self.make_ideal_K_mat(compobjs, T, P)
-                alpha_new = np.ones([self.Np])/self.Np
+                # TODO change these 3 lines to investigate the effect of changing the reference phase
+                # K_new = self.make_ideal_K_mat(compobjs, T, P)
+                # alpha_new = np.ones([self.Np])/self.Np
+                # theta_new = np.zeros([self.Np])
+                K_new = self.calc_K(T, P, x_new)
+                alpha_new = np.ones([self.Np]) / self.Np
                 theta_new = np.zeros([self.Np])
                 if verbose:
                     print('Changed reference phase')
@@ -902,6 +932,7 @@ class FlashController(object):
         self.x_calc = x_new.copy()
         self.alpha_calc = alpha_new.copy()
         self.theta_calc = theta_new.copy()
+        self.completed = True
 
         values = [x_new, alpha_new, K_new, itercount, error]
         return values
@@ -952,6 +983,7 @@ class FlashController(object):
         for hyd_phase, ind in self.hyd_phases.items():
             x_mat[:, ind] = self.fug_list[ind].hyd_comp()
         x = np.minimum(1, np.abs(x_mat))
+        x = x / np.sum(x, axis=0)[np.newaxis, :]
         return x
 
     def calc_K(self, T, P, x_mat):
@@ -1114,10 +1146,10 @@ class FlashController(object):
             J = jacobian(z, alpha_old, theta_old, K)
             J_mod = J[mat_mask].reshape([2*(self.Np - 1), 2*(self.Np - 1)])
             res_mod = res[arrdbl_mask]
-#            try:
-#                dx_tmp = -np.linalg.solve(J_mod, res_mod)
-#            except:
-#                dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
+            # try:
+            #     dx_tmp = -np.linalg.solve(J_mod, res_mod)
+            # except:
+            #     dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
             dx_tmp = -np.matmul(np.linalg.pinv(J_mod), res_mod)
 
 
@@ -1248,4 +1280,68 @@ class FlashController(object):
                              * K_all_mat[:, trans_tuple[0][1]])
                             / K_all_mat[:, trans_tuple[1]])
         return K_mat_ref
+
+
+    # TODO fill in documentation here...
+    def incipient_calc(self, T, P):
+        if (self.h2oexists) and (len(self.feed) > 2):
+            z_wf = []
+            comp_wf = []
+            wf_comp_map = {}
+            for ii in range(len(self.feed)):
+                if ii != self.h2oind:
+                    z_wf.append(self.feed[ii])
+                    comp_wf.append(self.compname[ii])
+                    wf_comp_map.update({ii: len(z_wf) - 1})
+            z_wf = np.asarray(z_wf) / sum(z_wf)
+            vlhc_flash = FlashController(comp_wf, phases=['vapor', 'lhc'])
+            vlhc_output = vlhc_flash.main_handler(vlhc_flash.compobjs, z=z_wf, T=T, P=P)
+
+            z_aqv = []
+            z_aqlhc = []
+            for ii in range(self.Nc):
+                if ii == self.h2oind:
+                    z_aqv.append(self.feed[ii])
+                    z_aqlhc.append(self.feed[ii])
+                else:
+                    z_aqv.append(vlhc_output[0][wf_comp_map[ii], 0] / (1 - self.feed[self.h2oind]))
+                    z_aqlhc.append(vlhc_output[0][wf_comp_map[ii], 1] / (1 - self.feed[self.h2oind]))
+
+            if 'vapor' in self.phases:
+                aqv_flash = FlashController(self.compname, phases=['aqueous', 'vapor'])
+                aqv_output = aqv_flash.main_handler(aqv_flash.compobjs, z=np.asarray(z_aqv), T=T, P=P)
+
+            if 'lhc' in self.phases:
+                aqlhc_flash = FlashController(self.compname, phases=['aqueous', 'lhc'])
+                aqlhc_output = aqlhc_flash.main_handler(aqlhc_flash.compobjs, z=np.asarray(z_aqlhc), T=T, P=P)
+
+            if 's1' in self.phases:
+                aqs1_flash = FlashController(self.compname, phases=['aqueous', 's1'])
+                aqs1_output = aqs1_flash.main_handler(aqs1_flash.compobjs, z=self.feed, T=T, P=P)
+
+            if 's2' in self.phases:
+                aqs2_flash = FlashController(self.compname, phases=['aqueous', 's2'])
+                aqs2_output = aqs2_flash.main_handler(aqs2_flash.compobjs, z=self.feed, T=T, P=P)
+
+            x_tmp = np.zeros([self.Nc, self.Np])
+            for jj, phase in enumerate(self.phases):
+                if phase == 'vapor':
+                    x_tmp[:, jj] = aqv_output[0][:, 1]
+                elif phase == 'lhc':
+                    x_tmp[:, jj] = aqlhc_output[0][:, 1]
+                elif phase == 'aqueous':
+                    if vlhc_output[1][0] > vlhc_output[1][1]:
+                        x_tmp[:, jj] = aqv_output[0][:, 0]
+                    else:
+                        x_tmp[:, jj] = aqlhc_output[0][:, 0]
+                elif phase == 's1':
+                    x_tmp[:, jj] = aqs1_output[0][:, 1]
+                elif phase == 's2':
+                    x_tmp[:, jj] = aqs2_output[0][:, 1]
+
+            return x_tmp / x_tmp[:, self.ref_ind][:, np.newaxis]
+
+        else:
+            return self.make_ideal_K_mat(self.compobjs, T, P)
+
 
