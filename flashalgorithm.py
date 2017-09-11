@@ -30,7 +30,6 @@ of CSMGem.
 
 """
 import numpy as np
-from scipy.optimize import minimize, newton_krylov, fsolve
 import time
 
 import component_properties as cp
