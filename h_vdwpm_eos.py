@@ -503,7 +503,10 @@ class HvdwpmEos(HydrateEos):
         """
 
         # Inherit all properties from HydrateEos
-        super().__init__(comps, T, P, structure)
+        try:
+            super().__init__(comps, T, P, structure)
+        except:
+            super(HvdwpmEos, self).__init__(comps, T, P, structure)
 
         self.kappa = np.zeros(1)
         self.kappa0 = self.Hs.kappa
@@ -568,7 +571,10 @@ class HvdwpmEos(HydrateEos):
         However, if T and P do change then, it will recalculate these
         constants.
         """
-        super().make_constant_mats(comps, T, P)
+        try:
+            super().make_constant_mats(comps, T, P)
+        except:
+            super(HvdwpmEos, self).make_constant_mats(comps, T, P)
 
         self.gwbeta_RT = (
             self.Hs.gw_0beta/(R*T_0)
