@@ -815,12 +815,11 @@ class FlashController(object):
                     K_0 = self.make_ideal_K_mat(compobjs, T, P)
                 else:
                     # Add more code to allow the specification of a partition coefficient
-                    print('K is not the default')
                     K_0 = np.asarray(K_init)
+                    if verbose:
+                        print('K is not the default')
+                    K_0 = K_0 / K_0[:, self.ref_ind][:, np.newaxis]
 
-
-                if type(K_init) != np.ndarray:
-                    K_init = np.asarray(K_init)
             else:
                 K_0 = self.incipient_calc(T, P)
 
