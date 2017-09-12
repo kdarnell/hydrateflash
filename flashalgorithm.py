@@ -756,7 +756,7 @@ class FlashController(object):
         self.set_ref_index()
         
     def main_handler(self, compobjs, z, T, P,
-                     K_init=None, verbose=False,
+                     K_init=[], verbose=False,
                      initialize=True, run_diagnostics=False,
                      incipient_calc=False,
                      **kwargs):
@@ -811,15 +811,14 @@ class FlashController(object):
             theta_0 = np.zeros([self.Np])
             # TODO: Rewrite so that ideal K doesn't have to be re-calculated!
             if not incipient_calc:
-                if not K_init:
+                if K_init == []:
                     K_0 = self.make_ideal_K_mat(compobjs, T, P)
                 else:
                     # Add more code to allow the specification of a partition coefficient
                     K_0 = np.asarray(K_init)
+                    K_0 = K_0 / K_0[:, self.ref_ind][:, np.newaxis]
                     if verbose:
                         print('K is not the default')
-                    K_0 = K_0 / K_0[:, self.ref_ind][:, np.newaxis]
-
             else:
                 K_0 = self.incipient_calc(T, P)
 
