@@ -666,7 +666,7 @@ class HvdwpmEos(HydrateEos):
         error = 1e6
         TOL = 1e-3
 
-        if 'C_small' in self.__dir__():
+        if hasattr(self, 'C_small'):
             C_small = self.C_small
             C_large = self.C_large
         else:
