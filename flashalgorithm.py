@@ -721,7 +721,7 @@ class FlashController(object):
 
             self.ref_phases_tried = []
 
-    # TODO: Refactor this to be called initialization and make all the same checks.
+    # TODO: Refactor this to be called at initialization and make all the same checks.
     def set_phases(self, phases):
         """Utility to reset phases
 
@@ -743,16 +743,28 @@ class FlashController(object):
     def change_ref_phase(self):
         """Utility to change reference phase on calculation stall"""
         self.ref_phases_tried.append(self.ref_phase)
-        self.ref_phase = [phase for phase in self.phases
-                          if phase not in self.ref_phases_tried 
-                          and phase not in ['s1', 's2']].pop(0)
-        self.ref_phase_iter = 0
-        if not self.ref_phase:
+        self.ref_phase_list = [
+            phase for phase in self.phases
+            if phase not in self.ref_phases_tried
+            and phase not in ['s1', 's2']
+        ]
+        if self.ref_phase_list == []:
             self.ref_phase = self.ref_phases_tried[
                 np.mod(self.ref_phase_iter,
                        len(self.ref_phases_tried))
             ]
             self.ref_phase_iter += 1
+        else:
+            self.ref_phase_iter = 0
+            if len(self.ref_phase_list) > 1:
+                if self.ref_phase == 'vapor':
+                    self.ref_phase = 'lhc'
+                elif self.ref_phase == 'lhc':
+                    self.ref_phase = 'vapor'
+                elif self.ref_phase == 'aqueous':
+                    self.ref_phase == 'lhc'
+            else:
+                self.ref_phase = self.ref_phase_list[0]
         self.set_ref_index()
         
     def main_handler(self, compobjs, z, T, P,
@@ -844,10 +856,10 @@ class FlashController(object):
             x_new = self.x_calc.copy()
 
         error = 1e6
-        TOL = 1e-6
+        TOL = 1e-8
         itercount = 0
         refphase_itercount = 0
-        iterlim = 500
+        iterlim = 100
         
         alpha_old = alpha_new.copy()
         theta_old = theta_new.copy()
@@ -889,9 +901,17 @@ class FlashController(object):
             nan_occur = (np.isnan(x_new).any() or np.isnan(K_new).any() 
                          or np.isnan(alpha_new).any() or np.isnan(theta_new).any())
             
-            if ((refphase_itercount > 20
-                and alpha_new[self.ref_ind] < 0.001)
-                or nan_occur) :
+            if (
+                ((refphase_itercount > 20) or (error < TOL))
+                and ((alpha_new[self.ref_ind] < 0.001)
+                      or (theta_new[self.ref_ind] == 1e-10))
+                or nan_occur
+            ) :
+                error = 1e6
+                # alpha_new = np.ones([self.Np]) / (1 - self.Np)
+                # alpha_new[self.ref_ind] = 0.0
+                # theta_new = np.zeros([self.Np])
+                # theta_new[self.ref_ind] = 2.0
                 self.change_ref_phase() 
                 refphase_itercount = 0
                 # TODO change these 3 lines to investigate the effect of changing the reference phase
@@ -899,8 +919,6 @@ class FlashController(object):
                 # alpha_new = np.ones([self.Np])/self.Np
                 # theta_new = np.zeros([self.Np])
                 K_new = self.calc_K(T, P, x_new)
-                alpha_new = np.ones([self.Np]) / self.Np
-                theta_new = np.zeros([self.Np])
                 if verbose:
                     print('Changed reference phase')
                 
@@ -975,7 +993,6 @@ class FlashController(object):
                 axis=1)
         x_mat = x_numerator/x_denominator[:, np.newaxis]
 
-        #TODO : Figure out why this is unused!
         fug_mat = self.calc_fugacity(T, P, x_mat)
         for hyd_phase, ind in self.hyd_phases.items():
             x_mat[:, ind] = self.fug_list[ind].hyd_comp()
@@ -1089,8 +1106,8 @@ class FlashController(object):
         # Set iteration parameters
         nres = 1e6
         ndx = 1e6
-        TOL = 1e-8
-        kmax = 100
+        TOL = 1e-6
+        kmax = 250
         k = 0
         dx = np.zeros([2*self.Np])
         
@@ -1162,7 +1179,7 @@ class FlashController(object):
             # the larger of 0.5*alpha_i or 0.01.
             alpha_new[arr_mask] = (alpha_old[arr_mask]
                            + np.sign(dx[alf_mask])
-                             * np.minimum(np.maximum(1e-2, 0.5*alpha_new[arr_mask]),
+                             * np.minimum(np.maximum(1e-2, 0.25*alpha_new[arr_mask]),
                                           np.abs(dx[alf_mask])))
             
             # Limit alpha to exist between 0 and 1 and adjust alpha_{ref_ind}

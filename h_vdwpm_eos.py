@@ -297,7 +297,6 @@ class HydrateEos(object):
             Fractional occupancy of each component in unspecified
             cage type.
         """
-        #TODO: Check to see if this can modified since C[water_ind] should be zero!
         Y = np.zeros(self.num_comps)
         denominator = (1.0 + np.sum(C * eq_fug))
         for ii, comp in enumerate(self.comps):
@@ -613,7 +612,7 @@ class HvdwpmEos(HydrateEos):
         This still depends on composition.
         """
         error = 1e6
-        TOL = 1e-3
+        TOL = 1e-8
         C_small = np.zeros(self.num_comps)
         C_large = np.zeros(self.num_comps)
         # 'Lattice sz' will originally be equal to self.Hs.a0_ast because we
@@ -664,7 +663,7 @@ class HvdwpmEos(HydrateEos):
             be in equilibrium within some other phase
         """
         error = 1e6
-        TOL = 1e-3
+        TOL = 1e-8
 
         if hasattr(self, 'C_small'):
             C_small = self.C_small
@@ -820,7 +819,7 @@ class HvdwpmEos(HydrateEos):
         # as we do here. In his version, the weighted exponential is always
         # used. However, we saw better agreement by separating single and
         # multiple guests.
-        if self.num_comps > 2:
+        if self.num_comps > 1:
             # Results of flash calculations for hydrocarbon systems do not produce results that are consistent
             # with CSMGem. On August 31, 2017. I commented out the following lines to see if they are consisent.
             # if self.Hs.hydstruc == 's1':
@@ -843,6 +842,7 @@ class HvdwpmEos(HydrateEos):
             (1 + self.Hs.etam['large']/self.Hs.Num_h2o) * self.Y_large_0
             / (1 + (self.Hs.etam['large']/self.Hs.Num_h2o) * self.Y_large_0)
         )
+        self.repulsive_large[self.water_ind] = 0.0
 
     # Determine size of lattice due to the filling of cages at T_0, P_0
     def filled_lattice_size(self):
@@ -1020,7 +1020,7 @@ class HvdwpmEos(HydrateEos):
 
 
     def activity_func(self, T, P, v_H_0):
-        """Calculates activity of water between aqueous phase and filledhydrate
+        """Calculates activity of water between aqueous phase and filled hydrate
 
         Parameters
         ----------
@@ -1043,8 +1043,8 @@ class HvdwpmEos(HydrateEos):
             + ((self.h_vol_Pint(T, P, v_H_0, kappa_wtavg)
                 - self.h_vol_Pint(T, P, self.a0_cubed, self.kappa0))
                - (self.h_vol_Pint(T, P_0, v_H_0, kappa_wtavg)
-                  - self.h_vol_Pint(T, P_0, self.a0_cubed, self.kappa0))) * 1e-1 / (R * T)
-        )
+                  - self.h_vol_Pint(T, P_0, self.a0_cubed, self.kappa0))) / (R * T)
+        ) * 1e-1
         return activity
 
 

@@ -141,6 +141,13 @@ class SrkEos(object):
                  + comp.SRK['S2'] * (1.0 - np.sqrt(self.Tr_vec[ii]))
                  / np.sqrt(self.Tr_vec[ii]))**2
             )
+
+            # Potential change from not fitting lhc-hydrate
+            # self.alf_vec[ii] = (
+            #     (1.0 + self.s1_vec[ii] * (1.0 - np.sqrt(self.Tr_vec[ii])
+            #      / np.sqrt(self.Tr_vec[ii]))) ** 2
+            # )
+
             self.a_vec[ii] = 0.42747*R**2*comp.Tc**2 / comp.Pc
             self.b_vec[ii] = 0.08664*R*comp.Tc / comp.Pc
 
