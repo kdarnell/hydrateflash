@@ -682,6 +682,7 @@ class FlashController(object):
         self.ref_comp = np.zeros([len(self.compobjs)])
         self.ref_fug = np.zeros([len(self.compobjs)])
         self.set_ref_index()
+        self.ref_phase_iter = 0
         self.K_calc = np.zeros([len(self.compobjs), len(self.phases)])
         self.x_calc = np.zeros([len(self.compobjs), len(self.phases)])
         self.alpha_calc = np.zeros([len(self.phases)])
@@ -745,8 +746,8 @@ class FlashController(object):
         self.ref_phases_tried.append(self.ref_phase)
         self.ref_phase_list = [
             phase for phase in self.phases
-            if phase not in self.ref_phases_tried
-            and phase not in ['s1', 's2']
+            if (phase not in self.ref_phases_tried)
+            and (phase not in ['s1', 's2'])
         ]
         if self.ref_phase_list == []:
             self.ref_phase = self.ref_phases_tried[
@@ -856,7 +857,7 @@ class FlashController(object):
             x_new = self.x_calc.copy()
 
         error = 1e6
-        TOL = 1e-8
+        TOL = 1e-6
         itercount = 0
         refphase_itercount = 0
         iterlim = 100
@@ -901,12 +902,17 @@ class FlashController(object):
             nan_occur = (np.isnan(x_new).any() or np.isnan(K_new).any() 
                          or np.isnan(alpha_new).any() or np.isnan(theta_new).any())
             
+            # if (
+            #     (((refphase_itercount > 25) or (error < TOL))
+            #       and ((alpha_new[self.ref_ind] < 0.001)
+            #            or (theta_new[self.ref_ind] == 1e-10)))
+            #     or nan_occur
+            # ):
             if (
-                ((refphase_itercount > 20) or (error < TOL))
-                and ((alpha_new[self.ref_ind] < 0.001)
-                      or (theta_new[self.ref_ind] == 1e-10))
+                    (((refphase_itercount > 25) or (error < TOL))
+                     and (alpha_new[self.ref_ind] < 0.0001))
                 or nan_occur
-            ) :
+            ):
                 error = 1e6
                 # alpha_new = np.ones([self.Np]) / (1 - self.Np)
                 # alpha_new[self.ref_ind] = 0.0
@@ -918,7 +924,7 @@ class FlashController(object):
                 # K_new = self.make_ideal_K_mat(compobjs, T, P)
                 # alpha_new = np.ones([self.Np])/self.Np
                 # theta_new = np.zeros([self.Np])
-                K_new = self.calc_K(T, P, x_new)
+                # K_new = self.calc_K(T, P, x_new)
                 if verbose:
                     print('Changed reference phase')
                 
