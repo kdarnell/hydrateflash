@@ -548,6 +548,8 @@ class FlashController(object):
         self.P = P
         self.ref_phase = None
         self.completed = False
+        self.monitor = []
+        self.iter_output = {}
         # Check that components exceed 1.
         if type(components) is str or len(components) == 1:
             raise ValueError("""More than one component is necessary 
@@ -771,7 +773,7 @@ class FlashController(object):
     def main_handler(self, compobjs, z, T, P,
                      K_init=[], verbose=False,
                      initialize=True, run_diagnostics=False,
-                     incipient_calc=False,
+                     incipient_calc=False, monitor_calc=False,
                      **kwargs):
         """Primary logical utility for performing flash calculation
 
@@ -818,6 +820,10 @@ class FlashController(object):
 
         if verbose:
             tstart = time.time()
+
+        if monitor_calc:
+            self.monitor = []
+            self.iter_output = {}
             
         if initialize or not self.completed:
             alpha_0 = np.ones([self.Np]) / self.Np
@@ -835,12 +841,31 @@ class FlashController(object):
             else:
                 K_0 = self.incipient_calc(T, P)
 
+            if monitor_calc:
+                self.monitor.append([{'alpha': alpha_0,
+                                      'theta': theta_0,
+                                      'K': K_0,
+                                      'step': 0,
+                                      'x': np.zeros_like(K_0),
+                                      'inner': [],
+                                      'error': []}])
+
             alpha_new, theta_new = self.find_alphatheta_min(z, alpha_0,
-                                                            theta_0, K_0)
+                                                            theta_0, K_0,
+                                                            monitor_calc=monitor_calc)
             x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
             fug_new = self.calc_fugacity(T, P, x_new)
             x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
             K_new = self.calc_K(T, P, x_new)
+
+            if monitor_calc:
+                self.monitor.append([{'alpha': alpha_new,
+                                      'theta': theta_new,
+                                      'K': K_new,
+                                      'step': 0.5,
+                                      'x': x_new,
+                                      'inner': self.iter_output,
+                                      'error': []}])
 
             if run_diagnostics:
                 print('Initial K:\n', K_0)
@@ -856,6 +881,15 @@ class FlashController(object):
             K_new = self.K_calc.copy()
             x_new = self.x_calc.copy()
 
+            if monitor_calc:
+                self.monitor.append([{'alpha': alpha_new,
+                                      'theta': theta_new,
+                                      'K': K_new,
+                                      'step': 0,
+                                      'x': x_new,
+                                      'inner': self.iter_output,
+                                      'error': []}])
+
         error = 1e6
         TOL = 1e-6
         itercount = 0
@@ -870,18 +904,24 @@ class FlashController(object):
         while error > TOL and itercount < iterlim:
             # Perform newton iteration to update alpha and theta at
             # a fixed x and K
+            self.iter_output = {}
             alpha_new, theta_new = self.find_alphatheta_min(z, alpha_old, 
-                                                             theta_old, K_new)
+                                                            theta_old, K_new,
+                                                            monitor_calc=monitor_calc)
 
             # Perform one iteration of successive substitution to update
             # x and K at the new alpha and theta.
             x_error = 1e6
             x_counter = 0
+            if monitor_calc:
+                x_iter_out = []
             while x_error > 1e2*TOL and x_counter < 1:
                 x_new = self.calc_x(z, alpha_new, theta_new, K_new, T, P)
                 K_new = self.calc_K(T, P, x_new)
                 x_error = np.sum(abs(x_new - x_old))
                 x_counter += 1
+                if monitor_calc:
+                    x_iter_out.append([x_counter, {'x': x_new, 'K': K_new}])
             
             if run_diagnostics:
                 print('Iter K:\n', K_new)
@@ -896,6 +936,17 @@ class FlashController(object):
             Obj_error = np.sum(objective(z, alpha_new,
                                          theta_new, K_new))
             error = max(Obj_error, x_error)
+
+
+            if monitor_calc:
+                self.iter_output['comp'] = x_iter_out
+                self.monitor.append([{'alpha': alpha_new,
+                                      'theta': theta_new,
+                                      'K': K_new,
+                                      'step': itercount,
+                                      'x': x_new,
+                                      'inner': self.iter_output,
+                                      'error': {'Obj': Obj_error, 'max': error}}])
             
             itercount += 1
             refphase_itercount += 1
@@ -935,6 +986,7 @@ class FlashController(object):
             theta_old = theta_new.copy()
             x_old = x_new.copy()
             K_old = K_new.copy()
+
             
             # Print a bunch of crap if desired.
             if verbose:
@@ -1079,7 +1131,7 @@ class FlashController(object):
                                                       self.ref_fug)
         return fug_out
 
-    def find_alphatheta_min(self, z, alpha0, theta0, K, print_iter_info=False):
+    def find_alphatheta_min(self, z, alpha0, theta0, K, print_iter_info=False, monitor_calc=False):
         """Algorithm for determining objective function minimization at fixed K
 
         Parameters
@@ -1157,9 +1209,17 @@ class FlashController(object):
         theta_old = theta0.copy()
         alpha_new = alpha_old.copy()
         theta_new = theta_old.copy()
-        
+
+        if monitor_calc:
+            iter_monitor = []
+
+        values_changed = True
         # Iterate until converged
-        while nres > TOL and ndx > TOL/100 and k < kmax:
+        while ((nres > TOL) and (ndx > TOL/100) and (k < kmax)) and (values_changed):
+
+            if monitor_calc:
+                iter_monitor.append([k, {'alpha': alpha_new, 'theta': theta_new,
+                                         'res': nres, 'delta': ndx}])
 
             # Solve for change in variables using non-reference phases
             res = objective(z, alpha_old, theta_old, K)
@@ -1183,18 +1243,19 @@ class FlashController(object):
 
             # Adjust alpha using a maximum change of
             # the larger of 0.5*alpha_i or 0.01.
-            alpha_new[arr_mask] = (alpha_old[arr_mask]
+            alpha_new[arr_mask] = np.minimum(1,
+                                     np.maximum(0, (
+                        alpha_old[arr_mask]
                            + np.sign(dx[alf_mask])
-                             * np.minimum(np.maximum(1e-2, 0.25*alpha_new[arr_mask]),
-                                          np.abs(dx[alf_mask])))
+                             * np.minimum(np.maximum(1e-3, 0.5*alpha_old[arr_mask]),
+                                          np.abs(dx[alf_mask])))))
+
             
             # Limit alpha to exist between 0 and 1 and adjust alpha_{ref_ind}
-            alpha_new[arr_mask] = np.minimum(1,
-                                     np.maximum(0, alpha_new[arr_mask]))
             alpha_new[self.ref_ind] = np.minimum(1,
                                          np.maximum(0,
                                                     1 - np.sum(alpha_new[arr_mask])))
-            alpha_new = alpha_new/np.sum(alpha_new)
+            alpha_new *= np.sum(alpha_new)**(-1)
 
             # Adjust theta and limit it to a positive value
             theta_new[arr_mask] = theta_old[arr_mask] + dx[theta_mask]
@@ -1215,7 +1276,9 @@ class FlashController(object):
             theta_new[change_ind] = 1e-10
 
             k += 1
-            
+            values_changed = (TOL < (np.sum(np.abs(alpha_old - alpha_new)**2)
+                                     + np.sum(np.abs(theta_old - theta_new))**2))
+
             alpha_old = alpha_new.copy()
             theta_old = theta_new.copy()
 
@@ -1224,6 +1287,8 @@ class FlashController(object):
                 print('error=', nres)
                 print('param change=', ndx)
 
+        if monitor_calc:
+            self.iter_output['phase'] = iter_monitor
         new_values = [alpha_new, theta_new]
         return new_values
 
