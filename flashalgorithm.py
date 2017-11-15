@@ -455,7 +455,7 @@ class FlashController(object):
 
     def __init__(self,
                  components,
-                 phases=['aqueous', 'vapor', 'lhc', 's1'],
+                 phases=['aqueous', 'vapor', 'lhc', 's1', 's2'],
                  eos=eos_default,
                  T=298.15,
                  P=1.0):
@@ -894,7 +894,7 @@ class FlashController(object):
         TOL = 1e-6
         itercount = 0
         refphase_itercount = 0
-        iterlim = 100
+        iterlim = 500
         
         alpha_old = alpha_new.copy()
         theta_old = theta_new.copy()
@@ -960,7 +960,7 @@ class FlashController(object):
             #     or nan_occur
             # ):
             if (
-                    (((refphase_itercount > 25) or (error < TOL))
+                    (((refphase_itercount > iterlim / 4) or (error < TOL))
                      and (alpha_new[self.ref_ind] < 0.0001))
                 or nan_occur
             ):
@@ -1165,7 +1165,7 @@ class FlashController(object):
         nres = 1e6
         ndx = 1e6
         TOL = 1e-6
-        kmax = 250
+        kmax = 100
         k = 0
         dx = np.zeros([2*self.Np])
         
