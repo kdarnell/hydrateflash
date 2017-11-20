@@ -891,10 +891,11 @@ class FlashController(object):
                                       'error': []}])
 
         error = 1e6
+        Obj_error = 1e6
         TOL = 1e-6
         itercount = 0
         refphase_itercount = 0
-        iterlim = 500
+        iterlim = 100
         
         alpha_old = alpha_new.copy()
         theta_old = theta_new.copy()
@@ -909,16 +910,23 @@ class FlashController(object):
                                                             theta_old, K_new,
                                                             monitor_calc=monitor_calc)
 
+            phase_diff = np.linalg.norm(alpha_new - alpha_old) + np.linalg.norm(theta_new - theta_old)
             # Perform one iteration of successive substitution to update
             # x and K at the new alpha and theta.
             x_error = 1e6
             x_counter = 0
+            if (itercount == 0) or (phase_diff > TOL / 10):
+                x_counter_lim = 1
+            else:
+                x_counter_lim = 2
+
             if monitor_calc:
                 x_iter_out = []
-            while x_error > 1e2*TOL and x_counter < 1:
+
+            while (x_error > TOL) and (x_counter < x_counter_lim):
                 x_new = self.calc_x(z, alpha_new, theta_new, K_new, T, P)
                 K_new = self.calc_K(T, P, x_new)
-                x_error = np.sum(abs(x_new - x_old))
+                x_error = np.linalg.norm(x_new - x_old)
                 x_counter += 1
                 if monitor_calc:
                     x_iter_out.append([x_counter, {'x': x_new, 'K': K_new}])
@@ -933,7 +941,7 @@ class FlashController(object):
 
             # Determine error associated new x and K and change in x
             # Set iteration error to the maximum of the two.
-            Obj_error = np.sum(objective(z, alpha_new,
+            Obj_error = np.linalg.norm(objective(z, alpha_new,
                                          theta_new, K_new))
             error = max(Obj_error, x_error)
 
@@ -960,7 +968,7 @@ class FlashController(object):
             #     or nan_occur
             # ):
             if (
-                    (((refphase_itercount > iterlim / 4) or (error < TOL))
+                    (((refphase_itercount > 25) or (error > TOL))
                      and (alpha_new[self.ref_ind] < 0.0001))
                 or nan_occur
             ):
@@ -1049,7 +1057,7 @@ class FlashController(object):
         x_denominator = 1 + np.sum(
                 alpha[np.newaxis, :]*(K*np.exp(theta[np.newaxis, :]) - 1),
                 axis=1)
-        x_mat = x_numerator/x_denominator[:, np.newaxis]
+        x_mat = x_numerator / x_denominator[:, np.newaxis]
 
         fug_mat = self.calc_fugacity(T, P, x_mat)
         for hyd_phase, ind in self.hyd_phases.items():
@@ -1242,7 +1250,7 @@ class FlashController(object):
             ndx = np.linalg.norm(dx)
 
             # Adjust alpha using a maximum change of
-            # the larger of 0.5*alpha_i or 0.01.
+            # the larger of 0.5*alpha_i or 0.001.
             alpha_new[arr_mask] = np.minimum(1,
                                      np.maximum(0, (
                         alpha_old[arr_mask]
@@ -1276,8 +1284,8 @@ class FlashController(object):
             theta_new[change_ind] = 1e-10
 
             k += 1
-            values_changed = (TOL < (np.sum(np.abs(alpha_old - alpha_new)**2)
-                                     + np.sum(np.abs(theta_old - theta_new))**2))
+            values_changed = (TOL < (np.linalg.norm(alpha_old - alpha_new)
+                                     + np.linalg.norm(theta_old - theta_new)))
 
             alpha_old = alpha_new.copy()
             theta_old = theta_new.copy()
