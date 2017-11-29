@@ -824,7 +824,7 @@ class FlashController(object):
         if monitor_calc:
             self.monitor = []
             self.iter_output = {}
-            
+
         if initialize or not self.completed:
             alpha_0 = np.ones([self.Np]) / self.Np
             theta_0 = np.zeros([self.Np])
