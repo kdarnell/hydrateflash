@@ -876,10 +876,21 @@ class FlashController(object):
                 print('First theta:\n', theta_new)
 
         else:
-            alpha_new = self.alpha_calc.copy()
-            theta_new = self.theta_calc.copy()
-            K_new = self.K_calc.copy()
-            x_new = self.x_calc.copy()
+            K_0 = self.K_calc / self.K_calc[:, self.ref_ind][:, np.newaxis]
+            alpha_0 = np.ones([self.Np]) / self.Np
+            theta_0 = np.zeros([self.Np])
+            alpha_new, theta_new = self.find_alphatheta_min(z, alpha_0,
+                                                            theta_0, K_0,
+                                                            monitor_calc=monitor_calc)
+            x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
+            fug_new = self.calc_fugacity(T, P, x_new)
+            x_new = self.calc_x(z, alpha_new, theta_new, K_0, T, P)
+            K_new = self.calc_K(T, P, x_new)
+
+            # alpha_new = self.alpha_calc.copy()
+            # theta_new = self.theta_calc.copy()
+            # K_new = self.K_calc.copy()
+            # x_new = self.x_calc.copy()
 
             if monitor_calc:
                 self.monitor.append([{'alpha': alpha_new,
@@ -918,7 +929,7 @@ class FlashController(object):
             if (itercount == 0) or (phase_diff > TOL / 10):
                 x_counter_lim = 1
             else:
-                x_counter_lim = 2
+                x_counter_lim = 1
 
             if monitor_calc:
                 x_iter_out = []
@@ -1255,7 +1266,7 @@ class FlashController(object):
                                      np.maximum(0, (
                         alpha_old[arr_mask]
                            + np.sign(dx[alf_mask])
-                             * np.minimum(np.maximum(1e-3, 0.5*alpha_old[arr_mask]),
+                             * np.minimum(np.maximum(1e-4, 0.25*alpha_old[arr_mask]),
                                           np.abs(dx[alf_mask])))))
 
             
@@ -1267,7 +1278,7 @@ class FlashController(object):
 
             # Adjust theta and limit it to a positive value
             theta_new[arr_mask] = theta_old[arr_mask] + dx[theta_mask]
-            theta_new[arr_mask] = np.maximum(0, theta_new[arr_mask])
+            theta_new[arr_mask] = np.minimum(1.5, np.maximum(0, theta_new[arr_mask]))
 
             # Use technique of Gupta to enforce that theta_i*alpha_i = 0
             # or that theta_i = alpha_i = 1e-10, which will kick one of them
@@ -1423,7 +1434,7 @@ class FlashController(object):
                 elif phase == 'lhc':
                     x_tmp[:, jj] = aqlhc_output[0][:, 1]
                 elif phase == 'aqueous':
-                    if vlhc_output[1][0] > vlhc_output[1][1]:
+                    if (vlhc_output[1][0] >= vlhc_output[1][1]) and ('vapor' in self.phases):
                         x_tmp[:, jj] = aqv_output[0][:, 0]
                     else:
                         x_tmp[:, jj] = aqlhc_output[0][:, 0]
